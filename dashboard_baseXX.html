@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Grupo START — Inteligência Vendor Central</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="top">
+  <div class="topin">
+    <div class="toprow">
+      <div>
+        <h1>Grupo START — Inteligência Vendor Central</h1>
+        <p class="sub">Painel consolidado · SP-API · Retail Analytics</p>
+      </div>
+    </div>
+    <div class="filtros">
+      <div class="fgroup">
+        <span class="flabel">Contas</span>
+        <div class="pills" id="pillsContas"></div>
+      </div>
+      <div class="fgroup">
+        <span class="flabel">Período — de</span>
+        <select id="selDe"></select>
+      </div>
+      <div class="fgroup">
+        <span class="flabel">Período — até</span>
+        <select id="selAte"></select>
+      </div>
+      <div class="fgroup">
+        <span class="flabel">Exportar</span>
+        <div class="pills">
+          <button class="pill exportbtn" id="btnXLSX">⬇ Excel</button>
+          <button class="pill exportbtn" id="btnPDF">⬇ PDF</button>
+        </div>
+      </div>
+    </div>
+    <nav class="jumpnav">
+      <a href="#sec-visao">Visão geral</a>
+      <a href="#sec-diagnosticos">Diagnósticos</a>
+      <a href="#sec-faturamento">Faturamento</a>
+      <a href="#sec-estoque">Estoque</a>
+      <a href="#sec-sellin">Sell-in/out</a>
+      <a href="#sec-margem">Margem</a>
+      <a href="#sec-previsao">Previsão</a>
+      <a href="#sec-catalogo">Catálogo</a>
+      <a href="#sec-produtos">Produtos</a>
+      <a href="#sec-abc">Curva ABC</a>
+      <a href="#sec-retencao">Retenção</a>
+      <a href="#sec-tempo-real">Tempo real</a>
+      <a href="#sec-detalhe">Detalhe por conta</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="section" id="sec-visao">
+    <p class="sectitle"><span class="n">1</span>Visão geral do período</p>
+    <div class="kpis" id="kpiRow"></div>
+  </div>
+
+  <div class="section" id="sec-diagnosticos">
+    <p class="sectitle"><span class="n">2</span>Diagnósticos e ações prioritárias</p>
+    <p class="secdesc">Gerado automaticamente a partir do último mês capturado de cada conta selecionada (não muda com o filtro de período acima) — impacto estimado em R$, do maior para o menor</p>
+    <div class="diagrow" id="diagWrap"></div>
+  </div>
+
+  <div class="section" id="sec-faturamento">
+    <p class="sectitle"><span class="n">3</span>Faturamento</p>
+    <div class="grid2">
+      <div class="card">
+        <h3>Faturamento por conta</h3>
+        <p class="desc">Receita pedida (ordered), somada no período selecionado</p>
+        <div class="chartbox"><canvas id="chFatConta"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Faturamento mês a mês</h3>
+        <p class="desc">Uma linha por conta selecionada</p>
+        <div class="chartbox"><canvas id="chFatMes"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-estoque">
+    <p class="sectitle"><span class="n">4</span>Estoque, cobertura e ruptura</p>
+    <div class="grid4">
+      <div class="card">
+        <h3>Composição do estoque (custo)</h3>
+        <p class="desc">Saudável vs. não saudável, somado nas contas selecionadas</p>
+        <div class="chartbox"><canvas id="chEstoque"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Conversão no tempo</h3>
+        <p class="desc">Unidades pedidas ÷ visitas à página, por mês</p>
+        <div class="chartbox"><canvas id="chConv"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Cobertura de estoque (dias)</h3>
+        <p class="desc">Unidades em estoque ÷ velocidade de venda diária do mês</p>
+        <div class="chartbox"><canvas id="chCobertura"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Ruptura (OOS)</h3>
+        <p class="desc">% do tempo com o produto indisponível, ponderado pelo estoque</p>
+        <div class="chartbox"><canvas id="chRuptura"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-sellin">
+    <p class="sectitle"><span class="n">5</span>Sell-in vs. sell-out</p>
+    <p class="secdesc">Custo de compra (pedidos de compra recebidos) contra custo do que foi de fato vendido, por mês — só contas com dados de PO mostram barras</p>
+    <div class="grid3">
+      <div class="card">
+        <h3>Sell-in (compra) vs. sell-out (venda)</h3>
+        <p class="desc">Custo em R$, por mês, contas selecionadas</p>
+        <div class="chartbox"><canvas id="chSellGap"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Pedidos de compra (POs)</h3>
+        <p class="desc">Confirmados vs. rejeitados pela Amazon, no período</p>
+        <div class="chartbox short" id="poKpisBox"></div>
+        <table class="tbl" id="tblSellin"><thead><tr><th>Conta</th><th class="num">POs</th><th class="num">Confirmado</th><th class="num">Rejeitado</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-margem">
+    <p class="sectitle"><span class="n">6</span>Margem e markup</p>
+    <div class="card">
+      <h3>Margem líquida (NPM) vs. markup de varejo</h3>
+      <p class="desc">Ambos ponderados pela receita do mês, contas selecionadas</p>
+      <div class="chartbox"><canvas id="chMargemMarkup"></canvas></div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-previsao">
+    <p class="sectitle"><span class="n">7</span>Previsão de demanda</p>
+    <p class="secdesc">Projeção da Amazon para os próximos meses — média e cenários p70/p80/p90, somado nas contas selecionadas</p>
+    <div class="grid3">
+      <div class="card">
+        <h3>Demanda prevista (R$)</h3>
+        <p class="desc">Faixa entre média e p90, meses futuros</p>
+        <div class="chartbox"><canvas id="chPrevisao"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Maior demanda prevista por produto</h3>
+        <p class="desc">Top ASINs por unidades médias previstas (próximo ciclo)</p>
+        <div class="tbl-wrap" style="max-height:340px">
+          <table class="tbl" id="tblPrevisaoTop"><thead><tr><th>Produto</th><th class="num">Média</th><th class="num">p90</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-catalogo">
+    <p class="sectitle"><span class="n">8</span>Catálogo de produtos</p>
+    <p class="secdesc">Todos os ASINs com faturamento no período, com nome, imagem e ranking (BSR) reais — não apenas o código do ASIN</p>
+    <div class="card">
+      <div class="catalogo-toolbar">
+        <input type="search" id="catBusca" placeholder="Buscar por nome ou ASIN…">
+        <select id="catOrdenar">
+          <option value="rev_desc">Ordenar: faturamento (maior)</option>
+          <option value="rev_asc">Ordenar: faturamento (menor)</option>
+          <option value="nome_asc">Ordenar: nome (A–Z)</option>
+          <option value="bsr_asc">Ordenar: BSR (melhor ranking)</option>
+        </select>
+        <span class="catalogo-count" id="catCount"></span>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl" id="tblCatalogo">
+          <thead><tr><th>Produto</th><th>Conta</th><th>BSR</th><th class="num">Faturamento no período</th><th class="num">Estoque saudável</th><th class="num">Cobertura</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-produtos">
+    <p class="sectitle"><span class="n">9</span>Produtos e concentração</p>
+    <div class="grid3b">
+      <div class="card">
+        <h3>Top 10 ASINs por faturamento</h3>
+        <p class="desc">Receita pedida no período, todas as contas selecionadas</p>
+        <div class="chartbox tall"><canvas id="chTopAsins"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Concentração de receita</h3>
+        <p class="desc">Participação dos 5 maiores ASINs no faturamento do período</p>
+        <div class="chartbox tall"><canvas id="chConcentracao"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Visitas × conversão × receita</h3>
+        <p class="desc">Cada bolha é um produto; tamanho = receita no último mês capturado</p>
+        <div class="chartbox tall"><canvas id="chScatter"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-abc">
+    <p class="sectitle"><span class="n">10</span>Curva ABC de produtos</p>
+    <div class="grid3">
+      <div class="card">
+        <h3>Curva de concentração acumulada</h3>
+        <p class="desc">Produtos ordenados por faturamento no período · linhas de corte em 80% (A) e 95% (B)</p>
+        <div class="chartbox tall"><canvas id="chABC"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Resumo por classe</h3>
+        <p class="desc">Calculado dinamicamente para o período e contas filtrados</p>
+        <table class="tbl" id="tblABCResumo">
+          <thead><tr><th>Classe</th><th class="num">Produtos</th><th class="num">Faturamento</th><th class="num">% do total</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>Produtos classe A</h3>
+      <p class="desc">Os itens que sozinhos respondem por 80% do faturamento do período</p>
+      <div class="tbl-wrap" style="max-height:420px">
+        <table class="tbl" id="tblABCDetalhe">
+          <thead><tr><th>#</th><th>Produto</th><th>Conta(s)</th><th class="num">Faturamento</th><th class="num">% acumulado</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-retencao">
+    <p class="sectitle"><span class="n">11</span>Retenção e comportamento de compra</p>
+    <p class="secdesc">Brand Analytics — depende de captura própria por conta; onde não houver dado, a aba mostra vazio</p>
+    <div class="card">
+      <div class="tabs" id="retTabs">
+        <button class="tabbtn on" data-tab="recompra">Recompra &amp; não atendidos</button>
+        <button class="tabbtn" data-tab="cesta">Cesta de compras</button>
+        <button class="tabbtn" data-tab="termos">Termos de busca</button>
+      </div>
+      <div class="tabpanel on" id="tabRecompra">
+        <div class="tbl-wrap" style="max-height:340px">
+          <table class="tbl" id="tblRecompra"><thead><tr><th>Produto</th><th>Conta</th><th class="num">Compradores recorrentes</th><th class="num">Pedidos não atendidos</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div class="tabpanel" id="tabCesta">
+        <div class="tbl-wrap" style="max-height:340px">
+          <table class="tbl" id="tblCesta"><thead><tr><th>Produto</th><th>Comprado junto com</th><th class="num">Ranking</th><th class="num">% de frequência</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+      <div class="tabpanel" id="tabTermos">
+        <div class="tbl-wrap" style="max-height:340px">
+          <table class="tbl" id="tblTermos"><thead><tr><th>Termo de busca</th><th>Conta</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-tempo-real">
+    <p class="sectitle"><span class="n">12</span>Tempo real (últimas 24h) <span class="beta">em construção</span></p>
+    <p class="secdesc">Vendas, tráfego e estoque hora a hora — aguardando o formato bruto ser incorporado ao dados_vendor.json</p>
+    <div class="card" id="tempoRealCard">
+      <div class="empty" id="tempoRealEmpty"></div>
+      <div class="chartbox" id="tempoRealChartBox" style="display:none"><canvas id="chTempoReal"></canvas></div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-detalhe">
+    <p class="sectitle"><span class="n">13</span>Detalhe por conta no período</p>
+    <div class="card">
+      <table class="tbl" id="tblContas">
+        <thead><tr>
+          <th>Conta</th><th class="num">Faturamento</th><th class="num">Unidades</th>
+          <th class="num">Ticket médio</th><th class="num">Margem líq.</th>
+          <th class="num">Visitas</th><th class="num">Conversão</th><th class="num">Cobertura (dias)</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div class="foot">Gerado a partir da captura SP-API (Retail Analytics + Brand Analytics) · Grupo START</div>
+
+<script src="app.js"></script>
+</body>
+</html>
