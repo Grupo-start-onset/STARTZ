@@ -441,8 +441,37 @@ async function iniciarDashboard() {
     return alerts.sort((a,b) => (a.score ?? 0) - (b.score ?? 0));
   }
 
+  // nota CDQ (estimativa) da conta: média simples de score_geral entre os ASINs avaliados
+  function renderQualidadeKPIs(linhasTodas){
+    const wrap = document.getElementById('qualKpiRow');
+    if (!linhasTodas.length) { wrap.innerHTML = '<div class="empty">Sem dados de qualidade ainda para as contas selecionadas.</div>'; return; }
+
+    const porConta = {};
+    state.contas.forEach(k => porConta[k] = {soma:0, n:0});
+    linhasTodas.forEach(l => {
+      if (porConta[l.contaKey] && l.score != null) { porConta[l.contaKey].soma += l.score; porConta[l.contaKey].n++; }
+    });
+
+    const cardsConta = state.contas.map(k => {
+      const d = porConta[k];
+      const media = d.n > 0 ? d.soma / d.n : null;
+      return `<div class="kpi"><div class="lab">Nota CDQ (estim.) · ${esc(CONTA_NOME[k])}</div><div class="val">${media == null ? '—' : NUM(media)}</div><div class="hint">${d.n} ASIN(s) avaliado(s)</div></div>`;
+    });
+
+    let cardCombinada = '';
+    if (state.contas.length > 1) {
+      const nTotal = linhasTodas.length;
+      const somaTotal = linhasTodas.reduce((s,l) => s + (l.score || 0), 0);
+      cardCombinada = `<div class="kpi"><div class="lab">Nota CDQ (estim.) · combinada</div><div class="val">${nTotal > 0 ? NUM(somaTotal / nTotal) : '—'}</div><div class="hint">${nTotal} ASIN(s) · ${state.contas.length} conta(s)</div></div>`;
+    }
+
+    wrap.innerHTML = cardCombinada + cardsConta.join('');
+  }
+
   function renderQualidade(){
     const linhasTodas = montarQualidadePeriodo();
+
+    renderQualidadeKPIs(linhasTodas);
 
     // ---- distribuição de graus, por conta ----
     const porContaGrau = {};
