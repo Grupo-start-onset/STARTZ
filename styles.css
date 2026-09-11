@@ -79,6 +79,9 @@ table.tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .tag.bad{background:var(--badS);color:var(--bad)}
 .tag.gold{background:var(--goldS);color:var(--gold)}
 .tag.muted{background:#EEF2F2;color:var(--muted)}
+.tag.info{background:var(--tealS);color:var(--teal)}
+
+.card.critical{border-left:4px solid var(--bad)}
 
 .empty{color:var(--muted);font-size:.82rem;padding:26px 10px;text-align:center}
 .foot{max-width:1320px;margin:0 auto;padding:10px 26px 40px;color:var(--muted);font-size:.72rem}

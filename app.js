@@ -80,7 +80,10 @@ async function iniciarDashboard() {
     de: ALL_MONTHS[0],
     ate: ALL_MONTHS[ALL_MONTHS.length-1],
     catBusca: '',
-    catOrdenar: 'rev_desc'
+    catOrdenar: 'rev_desc',
+    qualBusca: '',
+    qualFiltroGrau: '',
+    qualOrdenar: 'score_asc'
   };
 
   const pillsEl = document.getElementById('pillsContas');
@@ -118,6 +121,13 @@ async function iniciarDashboard() {
   const catOrdenar = document.getElementById('catOrdenar');
   catBusca.oninput = () => { state.catBusca = catBusca.value.trim().toLowerCase(); renderCatalogo(agregarPeriodo()); };
   catOrdenar.onchange = () => { state.catOrdenar = catOrdenar.value; renderCatalogo(agregarPeriodo()); };
+
+  const qualBusca = document.getElementById('qualBusca');
+  const qualFiltroGrau = document.getElementById('qualFiltroGrau');
+  const qualOrdenar = document.getElementById('qualOrdenar');
+  qualBusca.oninput = () => { state.qualBusca = qualBusca.value.trim().toLowerCase(); renderQualidade(); };
+  qualFiltroGrau.onchange = () => { state.qualFiltroGrau = qualFiltroGrau.value; renderQualidade(); };
+  qualOrdenar.onchange = () => { state.qualOrdenar = qualOrdenar.value; renderQualidade(); };
 
   // abas da seção de retenção
   document.querySelectorAll('#retTabs .tabbtn').forEach(btn => {
@@ -366,6 +376,144 @@ async function iniciarDashboard() {
       <td class="num">${MOEDA2(l.rev)}</td>
       <td class="num">${l.sellable==null ? '—' : MOEDA(l.sellable)}</td>
       <td class="num">${DIAS(l.cobertura)}</td>
+    </tr>`).join('');
+  }
+
+  /* ------------------------------------------------------------------------
+     6b. QUALIDADE DE CATÁLOGO (estimativa própria de CDQ)
+     ------------------------------------------------------------------------ */
+  const COMP_LABEL = { titulo:'Título', bullets:'Bullets', imagens:'Imagens', atributos:'Atributos', aplus:'A+', variacoes:'Variações' };
+
+  function gradeTagClass(g){
+    if (g === 'A') return 'good';
+    if (g === 'B') return 'info';
+    if (g === 'C') return 'warn';
+    if (g === 'D') return 'bad';
+    return 'muted';
+  }
+  function gradeTag(g){ return g ? `<span class="tag ${gradeTagClass(g)}">${esc(g)}</span>` : '<span class="tag muted">—</span>'; }
+  function compTooltip(comp){
+    if (!comp) return '';
+    const partes = ['Score ' + (comp.score != null ? NUM(comp.score) : '—')];
+    if (comp.motivo) partes.push(comp.motivo);
+    if (comp.obs) partes.push(comp.obs);
+    if (comp.comprimento != null) partes.push(comp.comprimento + ' caracteres');
+    if (comp.quantidade != null) partes.push(comp.quantidade + ' itens');
+    if (comp.alta_resolucao != null) partes.push(comp.alta_resolucao ? 'alta resolução' : 'resolução baixa');
+    if (comp.issues_count != null) partes.push(comp.issues_count + ' problema(s)');
+    if (comp.presente != null) partes.push(comp.presente ? 'presente' : 'ausente');
+    if (comp.tema) partes.push('tema: ' + comp.tema);
+    return partes.join(' · ');
+  }
+  function compBadge(comp){
+    if (!comp) return '<span class="tag muted">—</span>';
+    return `<span class="tag ${gradeTagClass(comp.grau)}" title="${esc(compTooltip(comp))}">${esc(comp.grau)}</span>`;
+  }
+
+  // uma linha por ASIN de qualidade, nas contas selecionadas, excluindo nao_pertence_a_conta
+  function montarQualidadePeriodo(){
+    const linhas = [];
+    state.contas.forEach(k => {
+      const q = CONTAS[k].qualidade || {};
+      const asins = q.asins || {};
+      const excluir = new Set(q.nao_pertence_a_conta || []);
+      Object.keys(asins).forEach(asin => {
+        if (excluir.has(asin)) return;
+        const a = asins[asin] || {};
+        const info = catalogInfo(k, asin);
+        linhas.push({
+          asin, contaKey:k, nome:info.nome, imagem:info.imagem,
+          score: a.score_geral, grau: a.grau_geral,
+          variacaoAplicavel: !!a.variacao_aplicavel,
+          comp: a.componentes || {}
+        });
+      });
+    });
+    return linhas;
+  }
+
+  function montarAlertasQualidade(linhas){
+    const alerts = [];
+    linhas.forEach(l => {
+      const compsD = Object.keys(l.comp).filter(ck => l.comp[ck] && l.comp[ck].grau === 'D');
+      if (compsD.length) alerts.push({...l, compsD});
+    });
+    return alerts.sort((a,b) => (a.score ?? 0) - (b.score ?? 0));
+  }
+
+  function renderQualidade(){
+    const linhasTodas = montarQualidadePeriodo();
+
+    // ---- distribuição de graus, por conta ----
+    const porContaGrau = {};
+    state.contas.forEach(k => porContaGrau[k] = {A:0,B:0,C:0,D:0});
+    linhasTodas.forEach(l => { if (porContaGrau[l.contaKey] && porContaGrau[l.contaKey][l.grau] != null) porContaGrau[l.contaKey][l.grau]++; });
+
+    destroyChart('qualidadeGraus');
+    charts.qualidadeGraus = new Chart(document.getElementById('chQualidadeGraus'), {
+      type:'bar',
+      data:{ labels: state.contas.map(k=>CONTA_NOME[k]),
+        datasets:[
+          {label:'A', data: state.contas.map(k=>porContaGrau[k].A), backgroundColor:'#2C7A57', borderRadius:4, stack:'s'},
+          {label:'B', data: state.contas.map(k=>porContaGrau[k].B), backgroundColor:'#17868C', borderRadius:4, stack:'s'},
+          {label:'C', data: state.contas.map(k=>porContaGrau[k].C), backgroundColor:'#9C6510', borderRadius:4, stack:'s'},
+          {label:'D', data: state.contas.map(k=>porContaGrau[k].D), backgroundColor:'#A32E2A', borderRadius:4, stack:'s'}
+        ] },
+      options: { ...baseGridOpts(), scales:{ x:{...baseGridOpts().scales.x, stacked:true}, y:{...baseGridOpts().scales.y, stacked:true} } }
+    });
+
+    // ---- alerta de defeitos críticos (Grau D em qualquer componente) ----
+    const alertas = montarAlertasQualidade(linhasTodas);
+    const tbAlerta = document.querySelector('#tblQualidadeAlerta tbody');
+    if (!linhasTodas.length) renderEmptyRow(tbAlerta, 5, 'Sem dados de qualidade ainda para as contas selecionadas.');
+    else if (!alertas.length) renderEmptyRow(tbAlerta, 5, 'Nenhum defeito crítico (Grau D) encontrado nas contas selecionadas.');
+    else tbAlerta.innerHTML = alertas.map(a => `<tr>
+      <td><div class="prodcell">
+        ${a.imagem ? `<img class="thumb" src="${esc(a.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
+        <div><div class="prodname">${esc(a.nome)}</div><div class="asincode">${esc(a.asin)}</div></div>
+      </div></td>
+      <td><span class="tag muted">${esc(CONTA_NOME[a.contaKey])}</span></td>
+      <td>${a.compsD.map(ck => `<span class="tag bad" style="margin-right:3px">${esc(COMP_LABEL[ck] || ck)}</span>`).join('')}</td>
+      <td class="num">${NUM2(a.score)}</td>
+      <td>${gradeTag(a.grau)}</td>
+    </tr>`).join('');
+
+    // ---- tabela principal: busca, filtro por grau, ordenação ----
+    let linhas = linhasTodas;
+    if (state.qualBusca) linhas = linhas.filter(l => l.nome.toLowerCase().includes(state.qualBusca) || l.asin.toLowerCase().includes(state.qualBusca));
+    if (state.qualFiltroGrau) linhas = linhas.filter(l => l.grau === state.qualFiltroGrau);
+
+    const piorComponenteScore = l => {
+      const scores = Object.values(l.comp).map(c => (c && c.score != null) ? c.score : 100);
+      return scores.length ? Math.min(...scores) : 100;
+    };
+    const ord = state.qualOrdenar;
+    linhas = [...linhas].sort((a,b) => {
+      if (ord === 'score_asc') return (a.score ?? 0) - (b.score ?? 0);
+      if (ord === 'score_desc') return (b.score ?? 0) - (a.score ?? 0);
+      if (ord === 'pior_componente') return piorComponenteScore(a) - piorComponenteScore(b);
+      if (ord === 'nome_asc') return a.nome.localeCompare(b.nome, 'pt-BR');
+      return 0;
+    });
+
+    document.getElementById('qualCount').textContent = linhas.length + ' produto(s)';
+    const tbody = document.querySelector('#tblQualidade tbody');
+    if (!linhas.length) { renderEmptyRow(tbody, 10, linhasTodas.length ? 'Nenhum produto encontrado.' : 'Sem dados de qualidade ainda para as contas selecionadas.'); return; }
+
+    tbody.innerHTML = linhas.map(l => `<tr>
+      <td><div class="prodcell">
+        ${l.imagem ? `<img class="thumb" src="${esc(l.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
+        <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></div>
+      </div></td>
+      <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
+      <td class="num">${NUM2(l.score)}</td>
+      <td>${gradeTag(l.grau)}</td>
+      <td>${compBadge(l.comp.titulo)}</td>
+      <td>${compBadge(l.comp.bullets)}</td>
+      <td>${compBadge(l.comp.imagens)}</td>
+      <td>${compBadge(l.comp.atributos)}</td>
+      <td>${compBadge(l.comp.aplus)}</td>
+      <td>${l.variacaoAplicavel ? compBadge(l.comp.variacoes) : '<span class="tag muted">N/A</span>'}</td>
     </tr>`).join('');
   }
 
@@ -808,6 +956,7 @@ async function iniciarDashboard() {
     renderRetencao();
     renderTempoReal();
     renderDetalhePorConta(porConta, meses);
+    renderQualidade();
   }
 
   /* ------------------------------------------------------------------------
