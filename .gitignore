@@ -1,0 +1,6 @@
+# Dados brutos capturados da SP-API (por conta) — não versionados.
+# Só o dados_vendor.json já transformado (raiz e clientes/<conta>/) é publicado.
+/dados_raw/
+
+__pycache__/
+*.pyc
