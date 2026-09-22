@@ -815,7 +815,7 @@ async function iniciarDashboard() {
             <td class="num">${NUM(i.rej)}</td><td class="num">${NUM(i.recebido)}</td>
             <td>${statusItemTag(i)}</td><td>${DATA_BR(i.dataReceb)}</td>
             <td class="num">${MOEDA2(i.custoUn)}</td><td class="num">${MOEDA2(i.precoLista)}</td>
-            <td class="num">${MOEDA2((i.conf ?? i.pedido ?? 0) * (i.custoUn || 0))}</td>
+            <td class="num">${MOEDA2((i.confValido ?? i.conf ?? i.pedido ?? 0) * (i.custoUn || 0))}</td>
           </tr>`;
         }).join('');
         html += `<tr class="peddet"><td colspan="13">
@@ -838,7 +838,7 @@ async function iniciarDashboard() {
     lista.forEach(p => (p.itens || []).forEach(i => rows.push([
       dt(p.data), p.po, CONTA_NOME[p.k], stPed(p), p.atrasado ? p.diasAtraso : '', dt(p.janelaIni), dt(p.janelaFim),
       i.asin, i.ean || '', catalogInfo(p.k, i.asin).nome, i.pedido, i.cancelado, i.conf, i.rej, i.recebido, stRec(i.statusRec), dt(i.dataReceb),
-      i.custoUn, i.precoLista, (i.conf ?? i.pedido ?? 0) * (i.custoUn || 0)
+      i.custoUn, i.precoLista, (i.confValido ?? i.conf ?? i.pedido ?? 0) * (i.custoUn || 0)
     ])));
     return rows;
   }
