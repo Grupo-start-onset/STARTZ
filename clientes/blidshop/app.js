@@ -67,9 +67,10 @@ async function iniciarDashboard() {
     CONTA_KEYS.flatMap(k => Object.keys(CONTAS[k].previsaoMes || {}))
   )).sort();
 
-  // meses disponíveis em sellinMes, por conta (cobertura pode não bater com ALL_MONTHS)
+  // meses com dado de sell-in (criação do PO em sellinMes ou recebimento em sellinRecebidoMes),
+  // por conta (cobertura pode não bater com ALL_MONTHS)
   const SELLIN_MONTHS = Array.from(new Set(
-    CONTA_KEYS.flatMap(k => Object.keys(CONTAS[k].sellinMes || {}))
+    CONTA_KEYS.flatMap(k => [...Object.keys(CONTAS[k].sellinMes || {}), ...Object.keys(CONTAS[k].sellinRecebidoMes || {})])
   )).sort();
 
   /* ------------------------------------------------------------------------
@@ -80,7 +81,14 @@ async function iniciarDashboard() {
     de: ALL_MONTHS[0],
     ate: ALL_MONTHS[ALL_MONTHS.length-1],
     catBusca: '',
-    catOrdenar: 'rev_desc'
+    catOrdenar: 'rev_desc',
+    qualBusca: '',
+    qualFiltroGrau: '',
+    qualOrdenar: 'score_asc',
+    pedBusca: '',
+    pedStatus: '',
+    pedMes: '',
+    pedAbertos: new Set()
   };
 
   const pillsEl = document.getElementById('pillsContas');
@@ -118,6 +126,30 @@ async function iniciarDashboard() {
   const catOrdenar = document.getElementById('catOrdenar');
   catBusca.oninput = () => { state.catBusca = catBusca.value.trim().toLowerCase(); renderCatalogo(agregarPeriodo()); };
   catOrdenar.onchange = () => { state.catOrdenar = catOrdenar.value; renderCatalogo(agregarPeriodo()); };
+
+  const qualBusca = document.getElementById('qualBusca');
+  const qualFiltroGrau = document.getElementById('qualFiltroGrau');
+  const qualOrdenar = document.getElementById('qualOrdenar');
+  qualBusca.oninput = () => { state.qualBusca = qualBusca.value.trim().toLowerCase(); renderQualidade(); };
+  qualFiltroGrau.onchange = () => { state.qualFiltroGrau = qualFiltroGrau.value; renderQualidade(); };
+  qualOrdenar.onchange = () => { state.qualOrdenar = qualOrdenar.value; renderQualidade(); };
+
+  // filtros da seção de pedidos de compra
+  const PED_MESES = Array.from(new Set(
+    CONTA_KEYS.flatMap(k => (CONTAS[k].pedidos || []).map(p => (p.data || '').slice(0,7)).filter(Boolean))
+  )).sort().reverse();
+  const pedMesEl = document.getElementById('pedMes');
+  PED_MESES.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = MESLABEL(m); pedMesEl.appendChild(o); });
+  document.getElementById('pedBusca').oninput = e => { state.pedBusca = e.target.value.trim().toLowerCase(); renderPedidos(); };
+  document.getElementById('pedStatus').onchange = e => { state.pedStatus = e.target.value; renderPedidos(); };
+  pedMesEl.onchange = e => { state.pedMes = e.target.value; renderPedidos(); };
+  document.querySelector('#tblPedidos tbody').addEventListener('click', e => {
+    const tr = e.target.closest('tr.pedrow');
+    if (!tr) return;
+    const chave = tr.dataset.chave;
+    if (state.pedAbertos.has(chave)) state.pedAbertos.delete(chave); else state.pedAbertos.add(chave);
+    renderPedidos();
+  });
 
   // abas da seção de retenção
   document.querySelectorAll('#retTabs .tabbtn').forEach(btn => {
@@ -370,6 +402,173 @@ async function iniciarDashboard() {
   }
 
   /* ------------------------------------------------------------------------
+     6b. QUALIDADE DE CATÁLOGO (estimativa própria de CDQ)
+     ------------------------------------------------------------------------ */
+  const COMP_LABEL = { titulo:'Título', bullets:'Bullets', imagens:'Imagens', atributos:'Atributos', aplus:'A+', variacoes:'Variações' };
+
+  function gradeTagClass(g){
+    if (g === 'A') return 'good';
+    if (g === 'B') return 'info';
+    if (g === 'C') return 'warn';
+    if (g === 'D') return 'bad';
+    return 'muted';
+  }
+  function gradeTag(g){ return g ? `<span class="tag ${gradeTagClass(g)}">${esc(g)}</span>` : '<span class="tag muted">—</span>'; }
+  function compTooltip(comp){
+    if (!comp) return '';
+    const partes = ['Score ' + (comp.score != null ? NUM(comp.score) : '—')];
+    if (comp.motivo) partes.push(comp.motivo);
+    if (comp.obs) partes.push(comp.obs);
+    if (comp.comprimento != null) partes.push(comp.comprimento + ' caracteres');
+    if (comp.quantidade != null) partes.push(comp.quantidade + ' itens');
+    if (comp.alta_resolucao != null) partes.push(comp.alta_resolucao ? 'alta resolução' : 'resolução baixa');
+    if (comp.issues_count != null) partes.push(comp.issues_count + ' problema(s)');
+    if (comp.presente != null) partes.push(comp.presente ? 'presente' : 'ausente');
+    if (comp.tema) partes.push('tema: ' + comp.tema);
+    return partes.join(' · ');
+  }
+  function compBadge(comp){
+    if (!comp) return '<span class="tag muted">—</span>';
+    return `<span class="tag ${gradeTagClass(comp.grau)}" title="${esc(compTooltip(comp))}">${esc(comp.grau)}</span>`;
+  }
+
+  // uma linha por ASIN de qualidade, nas contas selecionadas, excluindo nao_pertence_a_conta
+  function montarQualidadePeriodo(){
+    const linhas = [];
+    state.contas.forEach(k => {
+      const q = CONTAS[k].qualidade || {};
+      const asins = q.asins || {};
+      const excluir = new Set(q.nao_pertence_a_conta || []);
+      Object.keys(asins).forEach(asin => {
+        if (excluir.has(asin)) return;
+        const a = asins[asin] || {};
+        const info = catalogInfo(k, asin);
+        linhas.push({
+          asin, contaKey:k, nome:info.nome, imagem:info.imagem,
+          score: a.score_geral, grau: a.grau_geral,
+          variacaoAplicavel: !!a.variacao_aplicavel,
+          comp: a.componentes || {}
+        });
+      });
+    });
+    return linhas;
+  }
+
+  function montarAlertasQualidade(linhas){
+    const alerts = [];
+    linhas.forEach(l => {
+      const compsD = Object.keys(l.comp).filter(ck => l.comp[ck] && l.comp[ck].grau === 'D');
+      if (compsD.length) alerts.push({...l, compsD});
+    });
+    return alerts.sort((a,b) => (a.score ?? 0) - (b.score ?? 0));
+  }
+
+  // nota CDQ (estimativa) da conta: média simples de score_geral entre os ASINs avaliados
+  function renderQualidadeKPIs(linhasTodas){
+    const wrap = document.getElementById('qualKpiRow');
+    if (!linhasTodas.length) { wrap.innerHTML = '<div class="empty">Sem dados de qualidade ainda para as contas selecionadas.</div>'; return; }
+
+    const porConta = {};
+    state.contas.forEach(k => porConta[k] = {soma:0, n:0});
+    linhasTodas.forEach(l => {
+      if (porConta[l.contaKey] && l.score != null) { porConta[l.contaKey].soma += l.score; porConta[l.contaKey].n++; }
+    });
+
+    const cardsConta = state.contas.map(k => {
+      const d = porConta[k];
+      const media = d.n > 0 ? d.soma / d.n : null;
+      return `<div class="kpi"><div class="lab">Nota CDQ (estim.) · ${esc(CONTA_NOME[k])}</div><div class="val">${media == null ? '—' : NUM(media)}</div><div class="hint">${d.n} ASIN(s) avaliado(s)</div></div>`;
+    });
+
+    let cardCombinada = '';
+    if (state.contas.length > 1) {
+      const nTotal = linhasTodas.length;
+      const somaTotal = linhasTodas.reduce((s,l) => s + (l.score || 0), 0);
+      cardCombinada = `<div class="kpi"><div class="lab">Nota CDQ (estim.) · combinada</div><div class="val">${nTotal > 0 ? NUM(somaTotal / nTotal) : '—'}</div><div class="hint">${nTotal} ASIN(s) · ${state.contas.length} conta(s)</div></div>`;
+    }
+
+    wrap.innerHTML = cardCombinada + cardsConta.join('');
+  }
+
+  function renderQualidade(){
+    const linhasTodas = montarQualidadePeriodo();
+
+    renderQualidadeKPIs(linhasTodas);
+
+    // ---- distribuição de graus, por conta ----
+    const porContaGrau = {};
+    state.contas.forEach(k => porContaGrau[k] = {A:0,B:0,C:0,D:0});
+    linhasTodas.forEach(l => { if (porContaGrau[l.contaKey] && porContaGrau[l.contaKey][l.grau] != null) porContaGrau[l.contaKey][l.grau]++; });
+
+    destroyChart('qualidadeGraus');
+    charts.qualidadeGraus = new Chart(document.getElementById('chQualidadeGraus'), {
+      type:'bar',
+      data:{ labels: state.contas.map(k=>CONTA_NOME[k]),
+        datasets:[
+          {label:'A', data: state.contas.map(k=>porContaGrau[k].A), backgroundColor:'#2C7A57', borderRadius:4, stack:'s'},
+          {label:'B', data: state.contas.map(k=>porContaGrau[k].B), backgroundColor:'#17868C', borderRadius:4, stack:'s'},
+          {label:'C', data: state.contas.map(k=>porContaGrau[k].C), backgroundColor:'#9C6510', borderRadius:4, stack:'s'},
+          {label:'D', data: state.contas.map(k=>porContaGrau[k].D), backgroundColor:'#A32E2A', borderRadius:4, stack:'s'}
+        ] },
+      options: { ...baseGridOpts(), scales:{ x:{...baseGridOpts().scales.x, stacked:true}, y:{...baseGridOpts().scales.y, stacked:true} } }
+    });
+
+    // ---- alerta de defeitos críticos (Grau D em qualquer componente) ----
+    const alertas = montarAlertasQualidade(linhasTodas);
+    const tbAlerta = document.querySelector('#tblQualidadeAlerta tbody');
+    if (!linhasTodas.length) renderEmptyRow(tbAlerta, 5, 'Sem dados de qualidade ainda para as contas selecionadas.');
+    else if (!alertas.length) renderEmptyRow(tbAlerta, 5, 'Nenhum defeito crítico (Grau D) encontrado nas contas selecionadas.');
+    else tbAlerta.innerHTML = alertas.map(a => `<tr>
+      <td><div class="prodcell">
+        ${a.imagem ? `<img class="thumb" src="${esc(a.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
+        <div><div class="prodname">${esc(a.nome)}</div><div class="asincode">${esc(a.asin)}</div></div>
+      </div></td>
+      <td><span class="tag muted">${esc(CONTA_NOME[a.contaKey])}</span></td>
+      <td>${a.compsD.map(ck => `<span class="tag bad" style="margin-right:3px">${esc(COMP_LABEL[ck] || ck)}</span>`).join('')}</td>
+      <td class="num">${NUM2(a.score)}</td>
+      <td>${gradeTag(a.grau)}</td>
+    </tr>`).join('');
+
+    // ---- tabela principal: busca, filtro por grau, ordenação ----
+    let linhas = linhasTodas;
+    if (state.qualBusca) linhas = linhas.filter(l => l.nome.toLowerCase().includes(state.qualBusca) || l.asin.toLowerCase().includes(state.qualBusca));
+    if (state.qualFiltroGrau) linhas = linhas.filter(l => l.grau === state.qualFiltroGrau);
+
+    const piorComponenteScore = l => {
+      const scores = Object.values(l.comp).map(c => (c && c.score != null) ? c.score : 100);
+      return scores.length ? Math.min(...scores) : 100;
+    };
+    const ord = state.qualOrdenar;
+    linhas = [...linhas].sort((a,b) => {
+      if (ord === 'score_asc') return (a.score ?? 0) - (b.score ?? 0);
+      if (ord === 'score_desc') return (b.score ?? 0) - (a.score ?? 0);
+      if (ord === 'pior_componente') return piorComponenteScore(a) - piorComponenteScore(b);
+      if (ord === 'nome_asc') return a.nome.localeCompare(b.nome, 'pt-BR');
+      return 0;
+    });
+
+    document.getElementById('qualCount').textContent = linhas.length + ' produto(s)';
+    const tbody = document.querySelector('#tblQualidade tbody');
+    if (!linhas.length) { renderEmptyRow(tbody, 10, linhasTodas.length ? 'Nenhum produto encontrado.' : 'Sem dados de qualidade ainda para as contas selecionadas.'); return; }
+
+    tbody.innerHTML = linhas.map(l => `<tr>
+      <td><div class="prodcell">
+        ${l.imagem ? `<img class="thumb" src="${esc(l.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
+        <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></div>
+      </div></td>
+      <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
+      <td class="num">${NUM2(l.score)}</td>
+      <td>${gradeTag(l.grau)}</td>
+      <td>${compBadge(l.comp.titulo)}</td>
+      <td>${compBadge(l.comp.bullets)}</td>
+      <td>${compBadge(l.comp.imagens)}</td>
+      <td>${compBadge(l.comp.atributos)}</td>
+      <td>${compBadge(l.comp.aplus)}</td>
+      <td>${l.variacaoAplicavel ? compBadge(l.comp.variacoes) : '<span class="tag muted">N/A</span>'}</td>
+    </tr>`).join('');
+  }
+
+  /* ------------------------------------------------------------------------
      7. RENDERIZAÇÃO — GRÁFICOS E SEÇÕES
      ------------------------------------------------------------------------ */
   let charts = {};
@@ -471,25 +670,36 @@ async function iniciarDashboard() {
   }
 
   function renderSellIn(meses){
-    // sell-in (custo de compra) x sell-out (custo do vendido), por mês de sellinMes disponível nas contas selecionadas
-    const mesesSell = SELLIN_MONTHS;
+    // Respeita o filtro de período (state.de..state.ate).
+    // Gráfico: sell-in = custo do que a Amazon RECEBEU, pelo mês do último recebimento
+    //   (sellinRecebidoMes.custoRecebido), contra sell-out = custo do vendido (vendas.shippedCogs).
+    // KPIs e tabela: POs CRIADOS no período (sellinMes), somando .pos mês a mês
+    //   (totalPOs cobre o arquivo inteiro e não serve para período).
+    const noPeriodo = m => m >= state.de && m <= state.ate;
+    const mesesSell = SELLIN_MONTHS.filter(noPeriodo);
     const sellinPorMes = {}, sellOutPorMes = {};
     mesesSell.forEach(m => { sellinPorMes[m] = 0; sellOutPorMes[m] = 0; });
 
-    let totPOs = 0, totConf = 0, totRej = 0;
+    let totPOs = 0, totConf = 0, totRej = 0, totRec = 0;
     const linhasConta = [];
     state.contas.forEach(k => {
       const c = CONTAS[k];
       const sm = c.sellinMes || {};
-      let confConta = 0, rejConta = 0;
-      Object.keys(sm).forEach(m => {
+      const srm = c.sellinRecebidoMes || {};
+      Object.keys(srm).forEach(m => {
         if (sellinPorMes[m] == null) return;
-        sellinPorMes[m] += sm[m].custo || 0;
+        sellinPorMes[m] += srm[m].custoRecebido || 0;
+      });
+      let posConta = 0, confConta = 0, rejConta = 0, recConta = 0;
+      Object.keys(sm).forEach(m => {
+        if (!noPeriodo(m)) return;
+        posConta += sm[m].pos || 0;
         confConta += sm[m].conf || 0;
         rejConta += sm[m].rej || 0;
+        recConta += sm[m].recebido || 0;
       });
-      totConf += confConta; totRej += rejConta; totPOs += c.totalPOs || 0;
-      linhasConta.push({ k, pos:c.totalPOs||0, conf:confConta, rej:rejConta });
+      totPOs += posConta; totConf += confConta; totRej += rejConta; totRec += recConta;
+      linhasConta.push({ k, pos:posConta, conf:confConta, rej:rejConta, rec:recConta });
 
       const vendas = c.vendas || {};
       Object.keys(vendas).forEach(asin => {
@@ -502,7 +712,6 @@ async function iniciarDashboard() {
 
     destroyChart('sellGap');
     if (!mesesSell.length) {
-      destroyChart('sellGap');
       const ctx = document.getElementById('chSellGap');
       ctx.getContext('2d').clearRect(0,0,ctx.width,ctx.height);
     } else {
@@ -510,7 +719,7 @@ async function iniciarDashboard() {
         type:'bar',
         data:{ labels: mesesSell.map(MESLABEL),
           datasets:[
-            {label:'Sell-in (compra)', data: mesesSell.map(m=>sellinPorMes[m]), backgroundColor:'#17868C', borderRadius:4},
+            {label:'Sell-in (recebido, custo)', data: mesesSell.map(m=>sellinPorMes[m]), backgroundColor:'#17868C', borderRadius:4},
             {label:'Sell-out (venda, custo)', data: mesesSell.map(m=>sellOutPorMes[m]), backgroundColor:'#9C6510', borderRadius:4}
           ] },
         options: baseGridOpts()
@@ -520,19 +729,124 @@ async function iniciarDashboard() {
     const rejPct = (totConf+totRej) > 0 ? totRej/(totConf+totRej) : null;
     document.getElementById('poKpisBox').innerHTML = `
       <div class="kpis" style="grid-template-columns:1fr 1fr;height:100%">
-        <div class="kpi"><div class="lab">POs no período das contas</div><div class="val">${NUM(totPOs)}</div></div>
+        <div class="kpi"><div class="lab">POs criados no período</div><div class="val">${NUM(totPOs)}</div></div>
         <div class="kpi"><div class="lab">Taxa de rejeição</div><div class="val">${PCT(rejPct)}</div></div>
       </div>`;
 
     const tbody = document.querySelector('#tblSellin tbody');
-    if (!linhasConta.some(l => l.pos || l.conf || l.rej)) {
-      tbody.innerHTML = '<tr><td colspan="4" class="empty">Sem dados de sell-in para as contas selecionadas.</td></tr>';
+    if (!linhasConta.some(l => l.pos || l.conf || l.rej || l.rec)) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">Sem dados de sell-in para as contas e o período selecionados.</td></tr>';
     } else {
       tbody.innerHTML = linhasConta.map(l => `<tr>
-        <td>${esc(CONTA_NOME[l.k])}</td><td class="num">${NUM(l.pos)}</td><td class="num">${NUM(l.conf)}</td><td class="num">${NUM(l.rej)}</td>
+        <td>${esc(CONTA_NOME[l.k])}</td><td class="num">${NUM(l.pos)}</td><td class="num">${NUM(l.conf)}</td><td class="num">${NUM(l.rej)}</td><td class="num">${NUM(l.rec)}</td>
       </tr>`).join('');
     }
   }
+
+  /* ---- Pedidos de compra (lista por PO, com itens) ---- */
+  const DATA_BR = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString('pt-BR', {timeZone:'America/Sao_Paulo'}); };
+  const DATA_CURTA = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString('pt-BR', {timeZone:'America/Sao_Paulo', day:'2-digit', month:'2-digit'}); };
+  function statusPedidoTag(p){
+    if (p.status === 'SEM_STATUS') return '<span class="tag warn">Sem status</span>';
+    if (p.atrasado) return `<span class="tag bad">Atrasado ${NUM(p.diasAtraso)} d</span>`;
+    if (p.status === 'OPEN') return '<span class="tag info">Aberto</span>';
+    if (p.status === 'CLOSED') return '<span class="tag muted">Fechado</span>';
+    return `<span class="tag muted">${esc(p.status || '—')}</span>`;
+  }
+  function statusItemTag(i){
+    if (i.statusRec == null) return '<span class="tag muted">—</span>';
+    if (i.atrasado) return '<span class="tag bad">Atrasado</span>';
+    const mapa = { RECEIVED:['good','Recebido'], PARTIALLY_RECEIVED:['warn','Parcial'], NOT_RECEIVED:['muted','Não recebido'] };
+    const [cls, txt] = mapa[i.statusRec] || ['muted', i.statusRec];
+    return `<span class="tag ${cls}">${esc(txt)}</span>`;
+  }
+  function pedidosFiltrados(){
+    const busca = state.pedBusca;
+    const linhas = [];
+    state.contas.forEach(k => (CONTAS[k].pedidos || []).forEach(p => {
+      if (state.pedMes && (p.data || '').slice(0,7) !== state.pedMes) return;
+      if (state.pedStatus === 'ATRASADO' && !p.atrasado) return;
+      if (state.pedStatus && state.pedStatus !== 'ATRASADO' && p.status !== state.pedStatus) return;
+      if (busca) {
+        const alvo = [p.po, ...(p.itens || []).flatMap(i => [i.asin, i.ean, catalogInfo(k, i.asin).nome])]
+          .filter(Boolean).join(' ').toLowerCase();
+        if (!alvo.includes(busca)) return;
+      }
+      linhas.push({ ...p, k });
+    }));
+    return linhas.sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  }
+  function renderPedidos(){
+    const tbody = document.querySelector('#tblPedidos tbody');
+    const temDado = state.contas.some(k => (CONTAS[k].pedidos || []).length);
+    const linhas = pedidosFiltrados();
+    const tot = linhas.reduce((a, p) => { const t = p.tot || {}; a.conf += t.conf||0; a.custo += t.custo||0; a.rec += t.custoRecebido||0; return a; }, {conf:0, custo:0, rec:0});
+    document.getElementById('pedCount').textContent = `${NUM(linhas.length)} pedido(s) · ${NUM(tot.conf)} un. confirmadas · ${MOEDA(tot.custo)} confirmado · ${MOEDA(tot.rec)} recebido`;
+    const infos = state.contas.map(k => (CONTAS[k].sellinInfo || {}).statusAtualizadoAte).filter(Boolean).sort();
+    document.getElementById('pedRodape').textContent = infos.length
+      ? `Status de recebimento conforme a última captura (mais recente: ${DATA_BR(infos[infos.length-1])}). Atrasado = pedido aberto, janela de entrega vencida e quantidade confirmada ainda não recebida.`
+      : '';
+    if (!temDado) { renderEmptyRow(tbody, 13, 'Sem pedidos no dados_vendor.json para as contas selecionadas (rode o transformar_vendor.py atualizado).'); return; }
+    if (!linhas.length) { renderEmptyRow(tbody, 13, 'Nenhum pedido com esses filtros.'); return; }
+
+    tbody.innerHTML = linhas.map(p => {
+      const t = p.tot || {};
+      const chave = p.k + '|' + p.po;
+      const aberto = state.pedAbertos.has(chave);
+      const janela = p.janelaIni || p.janelaFim ? `${DATA_CURTA(p.janelaIni)} a ${DATA_BR(p.janelaFim)}` : '—';
+      let html = `<tr class="pedrow${aberto ? ' aberto' : ''}" data-chave="${esc(chave)}">
+        <td><span class="caret">▶</span></td>
+        <td>${DATA_BR(p.data)}</td>
+        <td><span class="ponum">${esc(p.po)}</span></td>
+        <td><span class="tag muted">${esc(CONTA_NOME[p.k])}</span></td>
+        <td>${statusPedidoTag(p)}</td>
+        <td>${janela}</td>
+        <td class="num">${NUM(t.itens)}</td><td class="num">${NUM(t.pedido)}</td><td class="num">${NUM(t.conf)}</td>
+        <td class="num">${NUM(t.rej)}</td><td class="num">${NUM(t.recebido)}</td>
+        <td class="num">${MOEDA2(t.custo)}</td><td class="num">${MOEDA2(t.custoRecebido)}</td>
+      </tr>`;
+      if (aberto) {
+        const itens = (p.itens || []).map(i => {
+          const info = catalogInfo(p.k, i.asin);
+          return `<tr>
+            <td><div class="prodcell">${info.imagem ? `<img class="thumb" src="${esc(info.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
+              <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${esc(i.asin)}${i.ean ? ' · EAN ' + esc(i.ean) : ''}</div></div></div></td>
+            <td class="num">${NUM(i.pedido)}</td><td class="num">${NUM(i.cancelado)}</td><td class="num">${NUM(i.conf)}</td>
+            <td class="num">${NUM(i.rej)}</td><td class="num">${NUM(i.recebido)}</td>
+            <td>${statusItemTag(i)}</td><td>${DATA_BR(i.dataReceb)}</td>
+            <td class="num">${MOEDA2(i.custoUn)}</td><td class="num">${MOEDA2(i.precoLista)}</td>
+            <td class="num">${MOEDA2((i.confValido ?? i.conf ?? i.pedido ?? 0) * (i.custoUn || 0))}</td>
+          </tr>`;
+        }).join('');
+        html += `<tr class="peddet"><td colspan="13">
+          <div class="pedmeta">Última atualização do status: ${DATA_BR(p.atualizado)}${p.estado ? ' · Estado: ' + esc(p.estado) : ''}${p.tipo ? ' · Tipo: ' + esc(p.tipo) : ''}${p.destino ? ' · Destino: ' + esc(p.destino) : ''}</div>
+          <table class="tbl itens"><thead><tr>
+            <th>Produto</th><th class="num">Pedido</th><th class="num">Cancelado</th><th class="num">Confirmado</th><th class="num">Rejeitado</th>
+            <th class="num">Recebido</th><th>Recebimento</th><th>Últ. recebimento</th><th class="num">Custo un.</th><th class="num">Preço de lista</th><th class="num">Total</th>
+          </tr></thead><tbody>${itens || '<tr><td colspan="11" class="empty">Pedido sem itens no arquivo capturado.</td></tr>'}</tbody></table>
+        </td></tr>`;
+      }
+      return html;
+    }).join('');
+  }
+  function linhasItensPedidos(lista){
+    const rows = [['Data do pedido','Nº do pedido','Conta','Status do pedido','Atrasado (dias)','Início janela','Fim janela','ASIN','EAN','Produto',
+                   'Pedido','Cancelado','Confirmado','Rejeitado','Recebido','Status recebimento','Últ. recebimento','Custo un.','Preço de lista','Total confirmado']];
+    const dt = iso => iso ? DATA_BR(iso) : '';
+    const stPed = p => p.status === 'SEM_STATUS' ? 'Sem status' : p.status === 'OPEN' ? 'Aberto' : p.status === 'CLOSED' ? 'Fechado' : (p.status || '');
+    const stRec = s => ({RECEIVED:'Recebido', PARTIALLY_RECEIVED:'Parcial', NOT_RECEIVED:'Não recebido'}[s] || s || '');
+    lista.forEach(p => (p.itens || []).forEach(i => rows.push([
+      dt(p.data), p.po, CONTA_NOME[p.k], stPed(p), p.atrasado ? p.diasAtraso : '', dt(p.janelaIni), dt(p.janelaFim),
+      i.asin, i.ean || '', catalogInfo(p.k, i.asin).nome, i.pedido, i.cancelado, i.conf, i.rej, i.recebido, stRec(i.statusRec), dt(i.dataReceb),
+      i.custoUn, i.precoLista, (i.confValido ?? i.conf ?? i.pedido ?? 0) * (i.custoUn || 0)
+    ])));
+    return rows;
+  }
+  document.getElementById('btnPedXLSX').onclick = () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhasItensPedidos(pedidosFiltrados())), 'Pedidos (itens)');
+    XLSX.writeFile(wb, `pedidos-de-compra_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
 
   function renderMargemMarkup(porMes, meses){
     destroyChart('margemMarkup');
@@ -800,6 +1114,7 @@ async function iniciarDashboard() {
     renderFaturamento(porConta, meses);
     renderEstoque(porMes, meses);
     renderSellIn(meses);
+    renderPedidos();
     renderMargemMarkup(porMes, meses);
     renderPrevisao();
     renderCatalogo(agregado);
@@ -808,6 +1123,7 @@ async function iniciarDashboard() {
     renderRetencao();
     renderTempoReal();
     renderDetalhePorConta(porConta, meses);
+    renderQualidade();
   }
 
   /* ------------------------------------------------------------------------
@@ -874,6 +1190,10 @@ async function iniciarDashboard() {
     const diagRows = [['Tipo','Título','Impacto (R$)','Qtd. itens','Contas']];
     agregarDiagnosticos().forEach(g => diagRows.push([g.tipo, g.titulo, g.impacto, g.qtd, [...g.contasEnvolvidas].map(k=>CONTA_NOME[k]).join(', ')]));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(diagRows), 'Diagnósticos');
+
+    const todosPedidos = state.contas.flatMap(k => (CONTAS[k].pedidos || []).map(p => ({...p, k})))
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+    if (todosPedidos.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhasItensPedidos(todosPedidos)), 'Pedidos (itens)');
 
     const nomeArquivo = `grupo-start-vendor-central_${state.de}_a_${state.ate}.xlsx`;
     XLSX.writeFile(wb, nomeArquivo);

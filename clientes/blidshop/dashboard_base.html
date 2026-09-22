@@ -48,6 +48,7 @@
       <a href="#sec-faturamento">Faturamento</a>
       <a href="#sec-estoque">Estoque</a>
       <a href="#sec-sellin">Sell-in/out</a>
+      <a href="#sec-pedidos">Pedidos</a>
       <a href="#sec-margem">Margem</a>
       <a href="#sec-previsao">Previsão</a>
       <a href="#sec-catalogo">Catálogo</a>
@@ -56,6 +57,7 @@
       <a href="#sec-retencao">Retenção</a>
       <a href="#sec-tempo-real">Tempo real</a>
       <a href="#sec-detalhe">Detalhe por conta</a>
+      <a href="#sec-qualidade">Qualidade de Catálogo</a>
     </nav>
   </div>
 </div>
@@ -117,7 +119,7 @@
 
   <div class="section" id="sec-sellin">
     <p class="sectitle"><span class="n">5</span>Sell-in vs. sell-out</p>
-    <p class="secdesc">Custo de compra (pedidos de compra recebidos) contra custo do que foi de fato vendido, por mês — só contas com dados de PO mostram barras</p>
+    <p class="secdesc">Custo do que a Amazon de fato recebeu (pelo mês do último recebimento) contra custo do que foi vendido, por mês, dentro do período selecionado. Só contas com dados de PO mostram barras</p>
     <div class="grid3">
       <div class="card">
         <h3>Sell-in (compra) vs. sell-out (venda)</h3>
@@ -126,15 +128,46 @@
       </div>
       <div class="card">
         <h3>Pedidos de compra (POs)</h3>
-        <p class="desc">Confirmados vs. rejeitados pela Amazon, no período</p>
+        <p class="desc">POs criados no período: unidades confirmadas, rejeitadas e já recebidas</p>
         <div class="chartbox short" id="poKpisBox"></div>
-        <table class="tbl" id="tblSellin"><thead><tr><th>Conta</th><th class="num">POs</th><th class="num">Confirmado</th><th class="num">Rejeitado</th></tr></thead><tbody></tbody></table>
+        <table class="tbl" id="tblSellin"><thead><tr><th>Conta</th><th class="num">POs</th><th class="num">Confirmado</th><th class="num">Rejeitado</th><th class="num">Recebido</th></tr></thead><tbody></tbody></table>
       </div>
     </div>
   </div>
 
+  <div class="section" id="sec-pedidos">
+    <p class="sectitle"><span class="n">6</span>Pedidos de compra</p>
+    <p class="secdesc">Cada pedido de compra (PO) da Amazon, do mais recente para o mais antigo. Clique numa linha para ver os itens. Esta lista não usa o filtro de período do topo (que vai só até o último mês de vendas fechado), para mostrar também os pedidos do mês atual</p>
+    <div class="card">
+      <div class="catalogo-toolbar">
+        <input type="search" id="pedBusca" placeholder="Buscar nº do pedido, ASIN, EAN ou produto…">
+        <select id="pedStatus">
+          <option value="">Status: todos</option>
+          <option value="OPEN">Abertos</option>
+          <option value="ATRASADO">Atrasados</option>
+          <option value="CLOSED">Fechados</option>
+          <option value="SEM_STATUS">Sem status capturado</option>
+        </select>
+        <select id="pedMes"><option value="">Mês do pedido: todos</option></select>
+        <button class="pill exportbtn" id="btnPedXLSX">⬇ Excel dos pedidos</button>
+        <span class="catalogo-count" id="pedCount"></span>
+      </div>
+      <div class="tbl-wrap" style="max-height:640px">
+        <table class="tbl" id="tblPedidos">
+          <thead><tr>
+            <th></th><th>Data do pedido</th><th>Nº do pedido</th><th>Conta</th><th>Status</th><th>Janela de entrega</th>
+            <th class="num">Itens</th><th class="num">Pedido</th><th class="num">Confirmado</th><th class="num">Rejeitado</th>
+            <th class="num">Recebido</th><th class="num">Valor confirmado</th><th class="num">Valor recebido</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="desc" id="pedRodape" style="margin-top:8px"></p>
+    </div>
+  </div>
+
   <div class="section" id="sec-margem">
-    <p class="sectitle"><span class="n">6</span>Margem e markup</p>
+    <p class="sectitle"><span class="n">7</span>Margem e markup</p>
     <div class="card">
       <h3>Margem líquida (NPM) vs. markup de varejo</h3>
       <p class="desc">Ambos ponderados pela receita do mês, contas selecionadas</p>
@@ -143,7 +176,7 @@
   </div>
 
   <div class="section" id="sec-previsao">
-    <p class="sectitle"><span class="n">7</span>Previsão de demanda</p>
+    <p class="sectitle"><span class="n">8</span>Previsão de demanda</p>
     <p class="secdesc">Projeção da Amazon para os próximos meses — média e cenários p70/p80/p90, somado nas contas selecionadas</p>
     <div class="grid3">
       <div class="card">
@@ -162,7 +195,7 @@
   </div>
 
   <div class="section" id="sec-catalogo">
-    <p class="sectitle"><span class="n">8</span>Catálogo de produtos</p>
+    <p class="sectitle"><span class="n">9</span>Catálogo de produtos</p>
     <p class="secdesc">Todos os ASINs com faturamento no período, com nome, imagem e ranking (BSR) reais — não apenas o código do ASIN</p>
     <div class="card">
       <div class="catalogo-toolbar">
@@ -185,7 +218,7 @@
   </div>
 
   <div class="section" id="sec-produtos">
-    <p class="sectitle"><span class="n">9</span>Produtos e concentração</p>
+    <p class="sectitle"><span class="n">10</span>Produtos e concentração</p>
     <div class="grid3b">
       <div class="card">
         <h3>Top 10 ASINs por faturamento</h3>
@@ -206,7 +239,7 @@
   </div>
 
   <div class="section" id="sec-abc">
-    <p class="sectitle"><span class="n">10</span>Curva ABC de produtos</p>
+    <p class="sectitle"><span class="n">11</span>Curva ABC de produtos</p>
     <div class="grid3">
       <div class="card">
         <h3>Curva de concentração acumulada</h3>
@@ -235,7 +268,7 @@
   </div>
 
   <div class="section" id="sec-retencao">
-    <p class="sectitle"><span class="n">11</span>Retenção e comportamento de compra</p>
+    <p class="sectitle"><span class="n">12</span>Retenção e comportamento de compra</p>
     <p class="secdesc">Brand Analytics — depende de captura própria por conta; onde não houver dado, a aba mostra vazio</p>
     <div class="card">
       <div class="tabs" id="retTabs">
@@ -262,7 +295,7 @@
   </div>
 
   <div class="section" id="sec-tempo-real">
-    <p class="sectitle"><span class="n">12</span>Tempo real (últimas 24h) <span class="beta">em construção</span></p>
+    <p class="sectitle"><span class="n">13</span>Tempo real (últimas 24h) <span class="beta">em construção</span></p>
     <p class="secdesc">Vendas, tráfego e estoque hora a hora — aguardando o formato bruto ser incorporado ao dados_vendor.json</p>
     <div class="card" id="tempoRealCard">
       <div class="empty" id="tempoRealEmpty"></div>
@@ -271,7 +304,7 @@
   </div>
 
   <div class="section" id="sec-detalhe">
-    <p class="sectitle"><span class="n">13</span>Detalhe por conta no período</p>
+    <p class="sectitle"><span class="n">14</span>Detalhe por conta no período</p>
     <div class="card">
       <table class="tbl" id="tblContas">
         <thead><tr>
@@ -281,6 +314,68 @@
         </tr></thead>
         <tbody></tbody>
       </table>
+    </div>
+  </div>
+
+  <div class="section" id="sec-qualidade">
+    <p class="sectitle"><span class="n">15</span>Qualidade de Catálogo <span class="beta">estimativa própria</span></p>
+    <p class="secdesc">
+      Índice de Qualidade de Catálogo — estimativa própria, calculada com as mesmas regras e pesos do guia oficial
+      da Amazon para o CDQ (Título 25% · Atributos Estruturados 30% · Variações 20% · Imagens 15% · Bullet Points 5% ·
+      Conteúdo A+ 5%). <b>Não é o número oficial</b> exibido no Vendor Central: parte da nota real da Amazon depende
+      de avaliação por IA deles (ex.: se o conteúdo "contribui pra melhor experiência do cliente"), o que não é
+      replicável via API pública. Quando Variações não se aplica ao produto, o peso de 20% é redistribuído
+      proporcionalmente entre os demais componentes no cálculo do score geral.
+    </p>
+
+    <div class="kpis" id="qualKpiRow" style="margin-bottom:16px"></div>
+
+    <div class="card critical">
+      <h3>Defeitos críticos (Grau D)</h3>
+      <p class="desc">ASINs com Grau D em algum componente individual — mesmo quando o grau geral não é D, porque a
+        média ponderada pode "esconder" um componente ruim de peso baixo (ex.: Bullet Points ou A+, 5% cada). Esta é
+        a lista mais acionável da aba.</p>
+      <div class="tbl-wrap" style="max-height:300px">
+        <table class="tbl" id="tblQualidadeAlerta">
+          <thead><tr><th>Produto</th><th>Conta</th><th>Componente(s) em D</th><th class="num">Score geral</th><th>Grau geral</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>Distribuição de ASINs por grau geral</h3>
+      <p class="desc">Contagem de A/B/C/D por conta selecionada</p>
+      <div class="chartbox"><canvas id="chQualidadeGraus"></canvas></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="catalogo-toolbar">
+        <input type="search" id="qualBusca" placeholder="Buscar por nome ou ASIN…">
+        <select id="qualFiltroGrau">
+          <option value="">Grau geral: todos</option>
+          <option value="A">Grau geral: A</option>
+          <option value="B">Grau geral: B</option>
+          <option value="C">Grau geral: C</option>
+          <option value="D">Grau geral: D</option>
+        </select>
+        <select id="qualOrdenar">
+          <option value="score_asc">Ordenar: score (pior primeiro)</option>
+          <option value="score_desc">Ordenar: score (melhor primeiro)</option>
+          <option value="pior_componente">Ordenar: pior componente</option>
+          <option value="nome_asc">Ordenar: nome (A–Z)</option>
+        </select>
+        <span class="catalogo-count" id="qualCount"></span>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl" id="tblQualidade">
+          <thead><tr>
+            <th>Produto</th><th>Conta</th><th class="num">Score</th><th>Grau</th>
+            <th>Título</th><th>Bullets</th><th>Imagens</th><th>Atributos</th><th>A+</th><th>Variações</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
