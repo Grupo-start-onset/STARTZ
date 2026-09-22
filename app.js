@@ -84,7 +84,11 @@ async function iniciarDashboard() {
     catOrdenar: 'rev_desc',
     qualBusca: '',
     qualFiltroGrau: '',
-    qualOrdenar: 'score_asc'
+    qualOrdenar: 'score_asc',
+    pedBusca: '',
+    pedStatus: '',
+    pedMes: '',
+    pedAbertos: new Set()
   };
 
   const pillsEl = document.getElementById('pillsContas');
@@ -129,6 +133,23 @@ async function iniciarDashboard() {
   qualBusca.oninput = () => { state.qualBusca = qualBusca.value.trim().toLowerCase(); renderQualidade(); };
   qualFiltroGrau.onchange = () => { state.qualFiltroGrau = qualFiltroGrau.value; renderQualidade(); };
   qualOrdenar.onchange = () => { state.qualOrdenar = qualOrdenar.value; renderQualidade(); };
+
+  // filtros da seção de pedidos de compra
+  const PED_MESES = Array.from(new Set(
+    CONTA_KEYS.flatMap(k => (CONTAS[k].pedidos || []).map(p => (p.data || '').slice(0,7)).filter(Boolean))
+  )).sort().reverse();
+  const pedMesEl = document.getElementById('pedMes');
+  PED_MESES.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = MESLABEL(m); pedMesEl.appendChild(o); });
+  document.getElementById('pedBusca').oninput = e => { state.pedBusca = e.target.value.trim().toLowerCase(); renderPedidos(); };
+  document.getElementById('pedStatus').onchange = e => { state.pedStatus = e.target.value; renderPedidos(); };
+  pedMesEl.onchange = e => { state.pedMes = e.target.value; renderPedidos(); };
+  document.querySelector('#tblPedidos tbody').addEventListener('click', e => {
+    const tr = e.target.closest('tr.pedrow');
+    if (!tr) return;
+    const chave = tr.dataset.chave;
+    if (state.pedAbertos.has(chave)) state.pedAbertos.delete(chave); else state.pedAbertos.add(chave);
+    renderPedidos();
+  });
 
   // abas da seção de retenção
   document.querySelectorAll('#retTabs .tabbtn').forEach(btn => {
@@ -722,6 +743,111 @@ async function iniciarDashboard() {
     }
   }
 
+  /* ---- Pedidos de compra (lista por PO, com itens) ---- */
+  const DATA_BR = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString('pt-BR', {timeZone:'America/Sao_Paulo'}); };
+  const DATA_CURTA = iso => { if (!iso) return '—'; const d = new Date(iso); return isNaN(d) ? '—' : d.toLocaleDateString('pt-BR', {timeZone:'America/Sao_Paulo', day:'2-digit', month:'2-digit'}); };
+  function statusPedidoTag(p){
+    if (p.status === 'SEM_STATUS') return '<span class="tag warn">Sem status</span>';
+    if (p.atrasado) return `<span class="tag bad">Atrasado ${NUM(p.diasAtraso)} d</span>`;
+    if (p.status === 'OPEN') return '<span class="tag info">Aberto</span>';
+    if (p.status === 'CLOSED') return '<span class="tag muted">Fechado</span>';
+    return `<span class="tag muted">${esc(p.status || '—')}</span>`;
+  }
+  function statusItemTag(i){
+    if (i.statusRec == null) return '<span class="tag muted">—</span>';
+    if (i.atrasado) return '<span class="tag bad">Atrasado</span>';
+    const mapa = { RECEIVED:['good','Recebido'], PARTIALLY_RECEIVED:['warn','Parcial'], NOT_RECEIVED:['muted','Não recebido'] };
+    const [cls, txt] = mapa[i.statusRec] || ['muted', i.statusRec];
+    return `<span class="tag ${cls}">${esc(txt)}</span>`;
+  }
+  function pedidosFiltrados(){
+    const busca = state.pedBusca;
+    const linhas = [];
+    state.contas.forEach(k => (CONTAS[k].pedidos || []).forEach(p => {
+      if (state.pedMes && (p.data || '').slice(0,7) !== state.pedMes) return;
+      if (state.pedStatus === 'ATRASADO' && !p.atrasado) return;
+      if (state.pedStatus && state.pedStatus !== 'ATRASADO' && p.status !== state.pedStatus) return;
+      if (busca) {
+        const alvo = [p.po, ...(p.itens || []).flatMap(i => [i.asin, i.ean, catalogInfo(k, i.asin).nome])]
+          .filter(Boolean).join(' ').toLowerCase();
+        if (!alvo.includes(busca)) return;
+      }
+      linhas.push({ ...p, k });
+    }));
+    return linhas.sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  }
+  function renderPedidos(){
+    const tbody = document.querySelector('#tblPedidos tbody');
+    const temDado = state.contas.some(k => (CONTAS[k].pedidos || []).length);
+    const linhas = pedidosFiltrados();
+    const tot = linhas.reduce((a, p) => { const t = p.tot || {}; a.conf += t.conf||0; a.custo += t.custo||0; a.rec += t.custoRecebido||0; return a; }, {conf:0, custo:0, rec:0});
+    document.getElementById('pedCount').textContent = `${NUM(linhas.length)} pedido(s) · ${NUM(tot.conf)} un. confirmadas · ${MOEDA(tot.custo)} confirmado · ${MOEDA(tot.rec)} recebido`;
+    const infos = state.contas.map(k => (CONTAS[k].sellinInfo || {}).statusAtualizadoAte).filter(Boolean).sort();
+    document.getElementById('pedRodape').textContent = infos.length
+      ? `Status de recebimento conforme a última captura (mais recente: ${DATA_BR(infos[infos.length-1])}). Atrasado = pedido aberto, janela de entrega vencida e quantidade confirmada ainda não recebida.`
+      : '';
+    if (!temDado) { renderEmptyRow(tbody, 13, 'Sem pedidos no dados_vendor.json para as contas selecionadas (rode o transformar_vendor.py atualizado).'); return; }
+    if (!linhas.length) { renderEmptyRow(tbody, 13, 'Nenhum pedido com esses filtros.'); return; }
+
+    tbody.innerHTML = linhas.map(p => {
+      const t = p.tot || {};
+      const chave = p.k + '|' + p.po;
+      const aberto = state.pedAbertos.has(chave);
+      const janela = p.janelaIni || p.janelaFim ? `${DATA_CURTA(p.janelaIni)} a ${DATA_BR(p.janelaFim)}` : '—';
+      let html = `<tr class="pedrow${aberto ? ' aberto' : ''}" data-chave="${esc(chave)}">
+        <td><span class="caret">▶</span></td>
+        <td>${DATA_BR(p.data)}</td>
+        <td><span class="ponum">${esc(p.po)}</span></td>
+        <td><span class="tag muted">${esc(CONTA_NOME[p.k])}</span></td>
+        <td>${statusPedidoTag(p)}</td>
+        <td>${janela}</td>
+        <td class="num">${NUM(t.itens)}</td><td class="num">${NUM(t.pedido)}</td><td class="num">${NUM(t.conf)}</td>
+        <td class="num">${NUM(t.rej)}</td><td class="num">${NUM(t.recebido)}</td>
+        <td class="num">${MOEDA2(t.custo)}</td><td class="num">${MOEDA2(t.custoRecebido)}</td>
+      </tr>`;
+      if (aberto) {
+        const itens = (p.itens || []).map(i => {
+          const info = catalogInfo(p.k, i.asin);
+          return `<tr>
+            <td><div class="prodcell">${info.imagem ? `<img class="thumb" src="${esc(info.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
+              <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${esc(i.asin)}${i.ean ? ' · EAN ' + esc(i.ean) : ''}</div></div></div></td>
+            <td class="num">${NUM(i.pedido)}</td><td class="num">${NUM(i.cancelado)}</td><td class="num">${NUM(i.conf)}</td>
+            <td class="num">${NUM(i.rej)}</td><td class="num">${NUM(i.recebido)}</td>
+            <td>${statusItemTag(i)}</td><td>${DATA_BR(i.dataReceb)}</td>
+            <td class="num">${MOEDA2(i.custoUn)}</td><td class="num">${MOEDA2(i.precoLista)}</td>
+            <td class="num">${MOEDA2((i.conf ?? i.pedido ?? 0) * (i.custoUn || 0))}</td>
+          </tr>`;
+        }).join('');
+        html += `<tr class="peddet"><td colspan="13">
+          <div class="pedmeta">Última atualização do status: ${DATA_BR(p.atualizado)}${p.estado ? ' · Estado: ' + esc(p.estado) : ''}${p.tipo ? ' · Tipo: ' + esc(p.tipo) : ''}${p.destino ? ' · Destino: ' + esc(p.destino) : ''}</div>
+          <table class="tbl itens"><thead><tr>
+            <th>Produto</th><th class="num">Pedido</th><th class="num">Cancelado</th><th class="num">Confirmado</th><th class="num">Rejeitado</th>
+            <th class="num">Recebido</th><th>Recebimento</th><th>Últ. recebimento</th><th class="num">Custo un.</th><th class="num">Preço de lista</th><th class="num">Total</th>
+          </tr></thead><tbody>${itens || '<tr><td colspan="11" class="empty">Pedido sem itens no arquivo capturado.</td></tr>'}</tbody></table>
+        </td></tr>`;
+      }
+      return html;
+    }).join('');
+  }
+  function linhasItensPedidos(lista){
+    const rows = [['Data do pedido','Nº do pedido','Conta','Status do pedido','Atrasado (dias)','Início janela','Fim janela','ASIN','EAN','Produto',
+                   'Pedido','Cancelado','Confirmado','Rejeitado','Recebido','Status recebimento','Últ. recebimento','Custo un.','Preço de lista','Total confirmado']];
+    const dt = iso => iso ? DATA_BR(iso) : '';
+    const stPed = p => p.status === 'SEM_STATUS' ? 'Sem status' : p.status === 'OPEN' ? 'Aberto' : p.status === 'CLOSED' ? 'Fechado' : (p.status || '');
+    const stRec = s => ({RECEIVED:'Recebido', PARTIALLY_RECEIVED:'Parcial', NOT_RECEIVED:'Não recebido'}[s] || s || '');
+    lista.forEach(p => (p.itens || []).forEach(i => rows.push([
+      dt(p.data), p.po, CONTA_NOME[p.k], stPed(p), p.atrasado ? p.diasAtraso : '', dt(p.janelaIni), dt(p.janelaFim),
+      i.asin, i.ean || '', catalogInfo(p.k, i.asin).nome, i.pedido, i.cancelado, i.conf, i.rej, i.recebido, stRec(i.statusRec), dt(i.dataReceb),
+      i.custoUn, i.precoLista, (i.conf ?? i.pedido ?? 0) * (i.custoUn || 0)
+    ])));
+    return rows;
+  }
+  document.getElementById('btnPedXLSX').onclick = () => {
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhasItensPedidos(pedidosFiltrados())), 'Pedidos (itens)');
+    XLSX.writeFile(wb, `pedidos-de-compra_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
   function renderMargemMarkup(porMes, meses){
     destroyChart('margemMarkup');
     charts.margemMarkup = new Chart(document.getElementById('chMargemMarkup'), {
@@ -988,6 +1114,7 @@ async function iniciarDashboard() {
     renderFaturamento(porConta, meses);
     renderEstoque(porMes, meses);
     renderSellIn(meses);
+    renderPedidos();
     renderMargemMarkup(porMes, meses);
     renderPrevisao();
     renderCatalogo(agregado);
@@ -1063,6 +1190,10 @@ async function iniciarDashboard() {
     const diagRows = [['Tipo','Título','Impacto (R$)','Qtd. itens','Contas']];
     agregarDiagnosticos().forEach(g => diagRows.push([g.tipo, g.titulo, g.impacto, g.qtd, [...g.contasEnvolvidas].map(k=>CONTA_NOME[k]).join(', ')]));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(diagRows), 'Diagnósticos');
+
+    const todosPedidos = state.contas.flatMap(k => (CONTAS[k].pedidos || []).map(p => ({...p, k})))
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+    if (todosPedidos.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhasItensPedidos(todosPedidos)), 'Pedidos (itens)');
 
     const nomeArquivo = `grupo-start-vendor-central_${state.de}_a_${state.ate}.xlsx`;
     XLSX.writeFile(wb, nomeArquivo);

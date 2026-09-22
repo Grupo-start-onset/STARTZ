@@ -48,6 +48,7 @@
       <a href="#sec-faturamento">Faturamento</a>
       <a href="#sec-estoque">Estoque</a>
       <a href="#sec-sellin">Sell-in/out</a>
+      <a href="#sec-pedidos">Pedidos</a>
       <a href="#sec-margem">Margem</a>
       <a href="#sec-previsao">Previsão</a>
       <a href="#sec-catalogo">Catálogo</a>
@@ -134,8 +135,39 @@
     </div>
   </div>
 
+  <div class="section" id="sec-pedidos">
+    <p class="sectitle"><span class="n">6</span>Pedidos de compra</p>
+    <p class="secdesc">Cada pedido de compra (PO) da Amazon, do mais recente para o mais antigo. Clique numa linha para ver os itens. Esta lista não usa o filtro de período do topo (que vai só até o último mês de vendas fechado), para mostrar também os pedidos do mês atual</p>
+    <div class="card">
+      <div class="catalogo-toolbar">
+        <input type="search" id="pedBusca" placeholder="Buscar nº do pedido, ASIN, EAN ou produto…">
+        <select id="pedStatus">
+          <option value="">Status: todos</option>
+          <option value="OPEN">Abertos</option>
+          <option value="ATRASADO">Atrasados</option>
+          <option value="CLOSED">Fechados</option>
+          <option value="SEM_STATUS">Sem status capturado</option>
+        </select>
+        <select id="pedMes"><option value="">Mês do pedido: todos</option></select>
+        <button class="pill exportbtn" id="btnPedXLSX">⬇ Excel dos pedidos</button>
+        <span class="catalogo-count" id="pedCount"></span>
+      </div>
+      <div class="tbl-wrap" style="max-height:640px">
+        <table class="tbl" id="tblPedidos">
+          <thead><tr>
+            <th></th><th>Data do pedido</th><th>Nº do pedido</th><th>Conta</th><th>Status</th><th>Janela de entrega</th>
+            <th class="num">Itens</th><th class="num">Pedido</th><th class="num">Confirmado</th><th class="num">Rejeitado</th>
+            <th class="num">Recebido</th><th class="num">Valor confirmado</th><th class="num">Valor recebido</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="desc" id="pedRodape" style="margin-top:8px"></p>
+    </div>
+  </div>
+
   <div class="section" id="sec-margem">
-    <p class="sectitle"><span class="n">6</span>Margem e markup</p>
+    <p class="sectitle"><span class="n">7</span>Margem e markup</p>
     <div class="card">
       <h3>Margem líquida (NPM) vs. markup de varejo</h3>
       <p class="desc">Ambos ponderados pela receita do mês, contas selecionadas</p>
@@ -144,7 +176,7 @@
   </div>
 
   <div class="section" id="sec-previsao">
-    <p class="sectitle"><span class="n">7</span>Previsão de demanda</p>
+    <p class="sectitle"><span class="n">8</span>Previsão de demanda</p>
     <p class="secdesc">Projeção da Amazon para os próximos meses — média e cenários p70/p80/p90, somado nas contas selecionadas</p>
     <div class="grid3">
       <div class="card">
@@ -163,7 +195,7 @@
   </div>
 
   <div class="section" id="sec-catalogo">
-    <p class="sectitle"><span class="n">8</span>Catálogo de produtos</p>
+    <p class="sectitle"><span class="n">9</span>Catálogo de produtos</p>
     <p class="secdesc">Todos os ASINs com faturamento no período, com nome, imagem e ranking (BSR) reais — não apenas o código do ASIN</p>
     <div class="card">
       <div class="catalogo-toolbar">
@@ -186,7 +218,7 @@
   </div>
 
   <div class="section" id="sec-produtos">
-    <p class="sectitle"><span class="n">9</span>Produtos e concentração</p>
+    <p class="sectitle"><span class="n">10</span>Produtos e concentração</p>
     <div class="grid3b">
       <div class="card">
         <h3>Top 10 ASINs por faturamento</h3>
@@ -207,7 +239,7 @@
   </div>
 
   <div class="section" id="sec-abc">
-    <p class="sectitle"><span class="n">10</span>Curva ABC de produtos</p>
+    <p class="sectitle"><span class="n">11</span>Curva ABC de produtos</p>
     <div class="grid3">
       <div class="card">
         <h3>Curva de concentração acumulada</h3>
@@ -236,7 +268,7 @@
   </div>
 
   <div class="section" id="sec-retencao">
-    <p class="sectitle"><span class="n">11</span>Retenção e comportamento de compra</p>
+    <p class="sectitle"><span class="n">12</span>Retenção e comportamento de compra</p>
     <p class="secdesc">Brand Analytics — depende de captura própria por conta; onde não houver dado, a aba mostra vazio</p>
     <div class="card">
       <div class="tabs" id="retTabs">
@@ -263,7 +295,7 @@
   </div>
 
   <div class="section" id="sec-tempo-real">
-    <p class="sectitle"><span class="n">12</span>Tempo real (últimas 24h) <span class="beta">em construção</span></p>
+    <p class="sectitle"><span class="n">13</span>Tempo real (últimas 24h) <span class="beta">em construção</span></p>
     <p class="secdesc">Vendas, tráfego e estoque hora a hora — aguardando o formato bruto ser incorporado ao dados_vendor.json</p>
     <div class="card" id="tempoRealCard">
       <div class="empty" id="tempoRealEmpty"></div>
@@ -272,7 +304,7 @@
   </div>
 
   <div class="section" id="sec-detalhe">
-    <p class="sectitle"><span class="n">13</span>Detalhe por conta no período</p>
+    <p class="sectitle"><span class="n">14</span>Detalhe por conta no período</p>
     <div class="card">
       <table class="tbl" id="tblContas">
         <thead><tr>
@@ -286,7 +318,7 @@
   </div>
 
   <div class="section" id="sec-qualidade">
-    <p class="sectitle"><span class="n">14</span>Qualidade de Catálogo <span class="beta">estimativa própria</span></p>
+    <p class="sectitle"><span class="n">15</span>Qualidade de Catálogo <span class="beta">estimativa própria</span></p>
     <p class="secdesc">
       Índice de Qualidade de Catálogo — estimativa própria, calculada com as mesmas regras e pesos do guia oficial
       da Amazon para o CDQ (Título 25% · Atributos Estruturados 30% · Variações 20% · Imagens 15% · Bullet Points 5% ·

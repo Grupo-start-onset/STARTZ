@@ -145,3 +145,17 @@ table.tbl{width:100%;border-collapse:collapse;font-size:.82rem}
   .grid2,.grid3,.grid4,.grid3b{gap:10px}
   .tbl-wrap{max-height:none;overflow:visible}
 }
+
+/* pedidos de compra (seção 6) */
+#sec-pedidos .tbl-wrap{overflow-x:auto}
+#tblPedidos td{white-space:nowrap}
+#tblPedidos .prodname{white-space:normal;min-width:220px}
+#tblPedidos tr.pedrow{cursor:pointer}
+#tblPedidos .caret{display:inline-block;width:10px;color:var(--muted);transition:transform .15s}
+#tblPedidos tr.pedrow.aberto .caret{transform:rotate(90deg)}
+#tblPedidos .ponum{font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.2px}
+#tblPedidos tr.peddet > td{background:#F7FAFA;padding:4px 10px 12px 28px}
+#tblPedidos tr.peddet:hover > td{background:#F7FAFA}
+#tblPedidos table.itens{width:100%;border-collapse:collapse;font-size:.76rem;background:#fff;border:1px solid var(--line);border-radius:8px}
+#tblPedidos table.itens th{position:static}
+#tblPedidos .pedmeta{font-size:.72rem;color:var(--muted);margin:6px 0}
