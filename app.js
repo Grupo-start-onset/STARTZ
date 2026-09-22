@@ -67,9 +67,10 @@ async function iniciarDashboard() {
     CONTA_KEYS.flatMap(k => Object.keys(CONTAS[k].previsaoMes || {}))
   )).sort();
 
-  // meses disponíveis em sellinMes, por conta (cobertura pode não bater com ALL_MONTHS)
+  // meses com dado de sell-in (criação do PO em sellinMes ou recebimento em sellinRecebidoMes),
+  // por conta (cobertura pode não bater com ALL_MONTHS)
   const SELLIN_MONTHS = Array.from(new Set(
-    CONTA_KEYS.flatMap(k => Object.keys(CONTAS[k].sellinMes || {}))
+    CONTA_KEYS.flatMap(k => [...Object.keys(CONTAS[k].sellinMes || {}), ...Object.keys(CONTAS[k].sellinRecebidoMes || {})])
   )).sort();
 
   /* ------------------------------------------------------------------------
@@ -648,25 +649,36 @@ async function iniciarDashboard() {
   }
 
   function renderSellIn(meses){
-    // sell-in (custo de compra) x sell-out (custo do vendido), por mês de sellinMes disponível nas contas selecionadas
-    const mesesSell = SELLIN_MONTHS;
+    // Respeita o filtro de período (state.de..state.ate).
+    // Gráfico: sell-in = custo do que a Amazon RECEBEU, pelo mês do último recebimento
+    //   (sellinRecebidoMes.custoRecebido), contra sell-out = custo do vendido (vendas.shippedCogs).
+    // KPIs e tabela: POs CRIADOS no período (sellinMes), somando .pos mês a mês
+    //   (totalPOs cobre o arquivo inteiro e não serve para período).
+    const noPeriodo = m => m >= state.de && m <= state.ate;
+    const mesesSell = SELLIN_MONTHS.filter(noPeriodo);
     const sellinPorMes = {}, sellOutPorMes = {};
     mesesSell.forEach(m => { sellinPorMes[m] = 0; sellOutPorMes[m] = 0; });
 
-    let totPOs = 0, totConf = 0, totRej = 0;
+    let totPOs = 0, totConf = 0, totRej = 0, totRec = 0;
     const linhasConta = [];
     state.contas.forEach(k => {
       const c = CONTAS[k];
       const sm = c.sellinMes || {};
-      let confConta = 0, rejConta = 0;
-      Object.keys(sm).forEach(m => {
+      const srm = c.sellinRecebidoMes || {};
+      Object.keys(srm).forEach(m => {
         if (sellinPorMes[m] == null) return;
-        sellinPorMes[m] += sm[m].custo || 0;
+        sellinPorMes[m] += srm[m].custoRecebido || 0;
+      });
+      let posConta = 0, confConta = 0, rejConta = 0, recConta = 0;
+      Object.keys(sm).forEach(m => {
+        if (!noPeriodo(m)) return;
+        posConta += sm[m].pos || 0;
         confConta += sm[m].conf || 0;
         rejConta += sm[m].rej || 0;
+        recConta += sm[m].recebido || 0;
       });
-      totConf += confConta; totRej += rejConta; totPOs += c.totalPOs || 0;
-      linhasConta.push({ k, pos:c.totalPOs||0, conf:confConta, rej:rejConta });
+      totPOs += posConta; totConf += confConta; totRej += rejConta; totRec += recConta;
+      linhasConta.push({ k, pos:posConta, conf:confConta, rej:rejConta, rec:recConta });
 
       const vendas = c.vendas || {};
       Object.keys(vendas).forEach(asin => {
@@ -679,7 +691,6 @@ async function iniciarDashboard() {
 
     destroyChart('sellGap');
     if (!mesesSell.length) {
-      destroyChart('sellGap');
       const ctx = document.getElementById('chSellGap');
       ctx.getContext('2d').clearRect(0,0,ctx.width,ctx.height);
     } else {
@@ -687,7 +698,7 @@ async function iniciarDashboard() {
         type:'bar',
         data:{ labels: mesesSell.map(MESLABEL),
           datasets:[
-            {label:'Sell-in (compra)', data: mesesSell.map(m=>sellinPorMes[m]), backgroundColor:'#17868C', borderRadius:4},
+            {label:'Sell-in (recebido, custo)', data: mesesSell.map(m=>sellinPorMes[m]), backgroundColor:'#17868C', borderRadius:4},
             {label:'Sell-out (venda, custo)', data: mesesSell.map(m=>sellOutPorMes[m]), backgroundColor:'#9C6510', borderRadius:4}
           ] },
         options: baseGridOpts()
@@ -697,16 +708,16 @@ async function iniciarDashboard() {
     const rejPct = (totConf+totRej) > 0 ? totRej/(totConf+totRej) : null;
     document.getElementById('poKpisBox').innerHTML = `
       <div class="kpis" style="grid-template-columns:1fr 1fr;height:100%">
-        <div class="kpi"><div class="lab">POs no período das contas</div><div class="val">${NUM(totPOs)}</div></div>
+        <div class="kpi"><div class="lab">POs criados no período</div><div class="val">${NUM(totPOs)}</div></div>
         <div class="kpi"><div class="lab">Taxa de rejeição</div><div class="val">${PCT(rejPct)}</div></div>
       </div>`;
 
     const tbody = document.querySelector('#tblSellin tbody');
-    if (!linhasConta.some(l => l.pos || l.conf || l.rej)) {
-      tbody.innerHTML = '<tr><td colspan="4" class="empty">Sem dados de sell-in para as contas selecionadas.</td></tr>';
+    if (!linhasConta.some(l => l.pos || l.conf || l.rej || l.rec)) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty">Sem dados de sell-in para as contas e o período selecionados.</td></tr>';
     } else {
       tbody.innerHTML = linhasConta.map(l => `<tr>
-        <td>${esc(CONTA_NOME[l.k])}</td><td class="num">${NUM(l.pos)}</td><td class="num">${NUM(l.conf)}</td><td class="num">${NUM(l.rej)}</td>
+        <td>${esc(CONTA_NOME[l.k])}</td><td class="num">${NUM(l.pos)}</td><td class="num">${NUM(l.conf)}</td><td class="num">${NUM(l.rej)}</td><td class="num">${NUM(l.rec)}</td>
       </tr>`).join('');
     }
   }
