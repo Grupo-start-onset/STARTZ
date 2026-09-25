@@ -1691,8 +1691,8 @@ async function iniciarDashboard() {
     const u24 = linhas.reduce((s, l) => s + l.u24, 0);
     document.getElementById('trKpiEstoque').innerHTML =
       kpiHTML('Estoque disponível agora', NUM(a.estAgora), 'unidades à venda no site') +
-      kpiHTML('Produtos com estoque', NUM(a.comEst), 'na última hora capturada') +
-      kpiHTML('Produtos sem estoque', NUM(a.semEst), 'na última hora capturada') +
+      kpiHTML('Produtos com estoque', NUM(a.comEst), 'entre os produtos informados pela Amazon') +
+      kpiHTML('Produtos sem estoque', NUM(a.semEst), 'entre os produtos informados pela Amazon') +
       kpiHTML('Vendendo e em risco', NUM(risco), 'sem estoque ou menos de 12h de cobertura', risco > 0) +
       kpiHTML('Cobertura geral', u24 > 0 ? COB(a.estAgora / (u24 / 24)) : '—', 'estoque ÷ venda média por hora (24h)');
 
