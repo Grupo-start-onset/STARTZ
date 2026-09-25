@@ -1409,7 +1409,7 @@ async function iniciarDashboard() {
       t.tem = true;
       const rev = a.orderedRevenue || 0;
       t.rev += rev; t.un += a.orderedUnits || 0; t.env += a.shippedRevenue || 0; t.views += a.glanceViews || 0;
-      if (a.npm != null) { t.npmNum += a.npm * rev; t.npmDen += rev; }
+      if (a.npm != null) { const peso = Math.max(rev, 0); t.npmNum += a.npm * peso; t.npmDen += peso; }   // peso nunca negativo (semana com mais cancelamento que pedido)
       t.est += a.sellableUnits || 0;
       if (a.oosRate != null) { const w = (a.sellableCost || 0) || 1; t.oosNum += a.oosRate * w; t.oosDen += w; }
     });
@@ -1448,7 +1448,8 @@ async function iniciarDashboard() {
     });
     const tot = linhas.reduce((a,l) => { a.rev += l.t.rev; a.un += l.t.un; a.views += l.t.views; a.npmNum += l.t.npmNum; a.npmDen += l.t.npmDen; return a; }, { rev:0, un:0, views:0, npmNum:0, npmDen:0 });
     const ult = linhas[linhas.length-1].t;
-    document.getElementById('semTabDesc').textContent = 'Estoque e ruptura são a posição de cada semana; a linha de total soma receita, unidades e visitas';
+    document.getElementById('semTabDesc').textContent = 'Estoque e ruptura são a posição de cada semana; a linha de total soma receita, unidades e visitas' +
+      (linhas.some(l => l.t.rev < 0 || l.t.un < 0) ? '. Receita ou unidades negativas: na semana, os cancelamentos superaram os pedidos novos (a Amazon ajusta os pedidos por cancelamento)' : '');
 
     const conv = t => t.views > 0 ? t.un / t.views : null;
     const npm = t => t.npmDen > 0 ? t.npmNum / t.npmDen : null;
