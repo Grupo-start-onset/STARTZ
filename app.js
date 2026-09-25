@@ -3,13 +3,14 @@
    Estrutura deste arquivo:
      1. Formatadores e constantes
      2. Carregamento de dados + índices derivados (catálogo, meses, etc.)
-     3. Estado global e construção dos filtros
+     3. Estado global, filtros (conta em lista suspensa, período) e paginação de tabelas
      4. Agregação por período (funções puras: state -> dados agregados)
      5. Diagnósticos (analise.diagnosticos, agregados entre contas)
      6. Catálogo de produtos (busca/ordenação)
      6b. Qualidade de Catálogo (estimativa própria de CDQ, bloco `qualidade`)
      6c. Saúde dos Listings (status/erros/avisos reais da Amazon, bloco `qualidadeListings`)
      7. Renderização — uma função por seção do dashboard
+     7b. Páginas e navegação (uma página por bloco; só a página aberta é desenhada)
      8. Exportação (Excel)
      9. Inicialização
    ============================================================================ */
@@ -35,6 +36,7 @@ async function iniciarDashboard() {
   const esc = s => (s==null ? '' : String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   const PALETTE = ['#17868C','#9C6510','#2C7A57','#A32E2A','#5F7378','#0D2B34'];
+  const LIM_PASSO = 100; // linhas mostradas por vez nas tabelas grandes (botão "Mostrar mais")
 
   /* ------------------------------------------------------------------------
      2. ÍNDICES DERIVADOS
@@ -94,28 +96,39 @@ async function iniciarDashboard() {
     pedBusca: '',
     pedStatus: '',
     pedMes: '',
-    pedAbertos: new Set()
+    pedAbertos: new Set(),
+    lim: {},
+    pagina: 'inicio'
   };
 
-  const pillsEl = document.getElementById('pillsContas');
+  // ---- paginação de tabelas: mostra LIM_PASSO linhas e um botão "Mostrar mais" ----
+  function resetLim(){ state.lim = {}; }
+  function limite(k){ return state.lim[k] || LIM_PASSO; }
+  function maisRow(k, colspan, restantes){
+    return `<tr class="maisrow"><td colspan="${colspan}"><button class="pill maisbtn" data-mais="${k}">Mostrar mais ${NUM(Math.min(LIM_PASSO, restantes))} (restam ${NUM(restantes)})</button></td></tr>`;
+  }
+  function tbodyHTML(key, linhas, colspan, fn){
+    const vis = linhas.slice(0, limite(key));
+    const resto = linhas.length - vis.length;
+    return vis.map(fn).join('') + (resto > 0 ? maisRow(key, colspan, resto) : '');
+  }
+
+  // ---- seleção de conta (lista suspensa: "Todas as contas" ou uma conta) ----
+  const selConta = document.getElementById('selConta');
+  const optTodas = document.createElement('option');
+  optTodas.value = '__todas'; optTodas.textContent = 'Todas as contas';
+  selConta.appendChild(optTodas);
   CONTA_KEYS.forEach(k => {
-    const b = document.createElement('button');
-    b.className = 'pill on';
-    b.textContent = CONTA_NOME[k];
-    b.dataset.k = k;
-    b.onclick = () => {
-      if (state.contas.includes(k)) {
-        if (state.contas.length === 1) return; // manter ao menos uma conta
-        state.contas = state.contas.filter(x => x !== k);
-        b.classList.remove('on');
-      } else {
-        state.contas.push(k);
-        b.classList.add('on');
-      }
-      render();
-    };
-    pillsEl.appendChild(b);
+    const o = document.createElement('option');
+    o.value = k; o.textContent = CONTA_NOME[k];
+    selConta.appendChild(o);
   });
+  if (CONTA_KEYS.length <= 1) document.getElementById('fgConta').style.display = 'none'; // dashboard de cliente: conta única
+  selConta.onchange = () => {
+    state.contas = selConta.value === '__todas' ? [...CONTA_KEYS] : [selConta.value];
+    resetLim();
+    renderPagina();
+  };
 
   const selDe = document.getElementById('selDe');
   const selAte = document.getElementById('selAte');
@@ -125,30 +138,30 @@ async function iniciarDashboard() {
     selDe.appendChild(o1); selAte.appendChild(o2);
   });
   selDe.value = state.de; selAte.value = state.ate;
-  selDe.onchange = () => { state.de = selDe.value; if (state.de > state.ate) { state.ate = state.de; selAte.value = state.ate; } render(); };
-  selAte.onchange = () => { state.ate = selAte.value; if (state.ate < state.de) { state.de = state.ate; selDe.value = state.de; } render(); };
+  selDe.onchange = () => { state.de = selDe.value; if (state.de > state.ate) { state.ate = state.de; selAte.value = state.ate; } resetLim(); renderPagina(); };
+  selAte.onchange = () => { state.ate = selAte.value; if (state.ate < state.de) { state.de = state.ate; selDe.value = state.de; } resetLim(); renderPagina(); };
 
   const catBusca = document.getElementById('catBusca');
   const catOrdenar = document.getElementById('catOrdenar');
-  catBusca.oninput = () => { state.catBusca = catBusca.value.trim().toLowerCase(); renderCatalogo(agregarPeriodo()); };
-  catOrdenar.onchange = () => { state.catOrdenar = catOrdenar.value; renderCatalogo(agregarPeriodo()); };
+  catBusca.oninput = () => { state.catBusca = catBusca.value.trim().toLowerCase(); resetLim(); renderCatalogo(agregarPeriodo()); };
+  catOrdenar.onchange = () => { state.catOrdenar = catOrdenar.value; resetLim(); renderCatalogo(agregarPeriodo()); };
 
   const qualBusca = document.getElementById('qualBusca');
   const qualFiltroGrau = document.getElementById('qualFiltroGrau');
   const qualOrdenar = document.getElementById('qualOrdenar');
-  qualBusca.oninput = () => { state.qualBusca = qualBusca.value.trim().toLowerCase(); renderQualidade(); };
-  qualFiltroGrau.onchange = () => { state.qualFiltroGrau = qualFiltroGrau.value; renderQualidade(); };
-  qualOrdenar.onchange = () => { state.qualOrdenar = qualOrdenar.value; renderQualidade(); };
+  qualBusca.oninput = () => { state.qualBusca = qualBusca.value.trim().toLowerCase(); resetLim(); renderQualidade(); };
+  qualFiltroGrau.onchange = () => { state.qualFiltroGrau = qualFiltroGrau.value; resetLim(); renderQualidade(); };
+  qualOrdenar.onchange = () => { state.qualOrdenar = qualOrdenar.value; resetLim(); renderQualidade(); };
 
   // filtros da seção Saúde dos Listings (qualidadeListings)
   const listBusca = document.getElementById('listBusca');
   const listOrdenar = document.getElementById('listOrdenar');
   const avisoBusca = document.getElementById('avisoBusca');
   const avisoOrdenar = document.getElementById('avisoOrdenar');
-  listBusca.oninput = () => { state.listBusca = listBusca.value.trim().toLowerCase(); renderListingsSuprimidos(montarListings()); };
-  listOrdenar.onchange = () => { state.listOrdenar = listOrdenar.value; renderListingsSuprimidos(montarListings()); };
-  avisoBusca.oninput = () => { state.avisoBusca = avisoBusca.value.trim().toLowerCase(); renderListingsAvisos(montarListings()); };
-  avisoOrdenar.onchange = () => { state.avisoOrdenar = avisoOrdenar.value; renderListingsAvisos(montarListings()); };
+  listBusca.oninput = () => { state.listBusca = listBusca.value.trim().toLowerCase(); resetLim(); renderListingsSuprimidos(montarListings()); };
+  listOrdenar.onchange = () => { state.listOrdenar = listOrdenar.value; resetLim(); renderListingsSuprimidos(montarListings()); };
+  avisoBusca.oninput = () => { state.avisoBusca = avisoBusca.value.trim().toLowerCase(); resetLim(); renderListingsAvisos(montarListings()); };
+  avisoOrdenar.onchange = () => { state.avisoOrdenar = avisoOrdenar.value; resetLim(); renderListingsAvisos(montarListings()); };
 
   // filtros da seção de pedidos de compra
   const PED_MESES = Array.from(new Set(
@@ -156,9 +169,9 @@ async function iniciarDashboard() {
   )).sort().reverse();
   const pedMesEl = document.getElementById('pedMes');
   PED_MESES.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = MESLABEL(m); pedMesEl.appendChild(o); });
-  document.getElementById('pedBusca').oninput = e => { state.pedBusca = e.target.value.trim().toLowerCase(); renderPedidos(); };
-  document.getElementById('pedStatus').onchange = e => { state.pedStatus = e.target.value; renderPedidos(); };
-  pedMesEl.onchange = e => { state.pedMes = e.target.value; renderPedidos(); };
+  document.getElementById('pedBusca').oninput = e => { state.pedBusca = e.target.value.trim().toLowerCase(); resetLim(); renderPedidos(); };
+  document.getElementById('pedStatus').onchange = e => { state.pedStatus = e.target.value; resetLim(); renderPedidos(); };
+  pedMesEl.onchange = e => { state.pedMes = e.target.value; resetLim(); renderPedidos(); };
   document.querySelector('#tblPedidos tbody').addEventListener('click', e => {
     const tr = e.target.closest('tr.pedrow');
     if (!tr) return;
@@ -175,6 +188,26 @@ async function iniciarDashboard() {
       btn.classList.add('on');
       document.getElementById('tab' + btn.dataset.tab[0].toUpperCase() + btn.dataset.tab.slice(1)).classList.add('on');
     };
+  });
+
+  // botão "Mostrar mais": aumenta o limite daquela tabela e redesenha só ela
+  const REDESENHAR_TABELA = {
+    catalogo:   () => renderCatalogo(agregarPeriodo()),
+    suprimidos: () => renderListingsSuprimidos(montarListings()),
+    avisos:     () => renderListingsAvisos(montarListings()),
+    qualidade:  () => renderQualidade(),
+    qualAlerta: () => renderQualidade(),
+    pedidos:    () => renderPedidos(),
+    recompra:   () => renderRetencao(),
+    cesta:      () => renderRetencao(),
+    termos:     () => renderRetencao()
+  };
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-mais]');
+    if (!b) return;
+    const k = b.dataset.mais;
+    state.lim[k] = limite(k) + LIM_PASSO;
+    if (REDESENHAR_TABELA[k]) REDESENHAR_TABELA[k]();
   });
 
   /* ------------------------------------------------------------------------
@@ -404,7 +437,7 @@ async function iniciarDashboard() {
     const tbody = document.querySelector('#tblCatalogo tbody');
     if (!linhas.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">Nenhum produto encontrado.</td></tr>'; return; }
 
-    tbody.innerHTML = linhas.map(l => `<tr>
+    tbody.innerHTML = tbodyHTML('catalogo', linhas, 6, l => `<tr>
       <td><div class="prodcell">
         ${l.imagem ? `<img class="thumb" src="${esc(l.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
         <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></div>
@@ -414,7 +447,7 @@ async function iniciarDashboard() {
       <td class="num">${MOEDA2(l.rev)}</td>
       <td class="num">${l.sellable==null ? '—' : MOEDA(l.sellable)}</td>
       <td class="num">${DIAS(l.cobertura)}</td>
-    </tr>`).join('');
+    </tr>`);
   }
 
   /* ------------------------------------------------------------------------
@@ -534,7 +567,7 @@ async function iniciarDashboard() {
     const tbAlerta = document.querySelector('#tblQualidadeAlerta tbody');
     if (!linhasTodas.length) renderEmptyRow(tbAlerta, 5, 'Sem dados de qualidade ainda para as contas selecionadas.');
     else if (!alertas.length) renderEmptyRow(tbAlerta, 5, 'Nenhum defeito crítico (Grau D) encontrado nas contas selecionadas.');
-    else tbAlerta.innerHTML = alertas.map(a => `<tr>
+    else tbAlerta.innerHTML = tbodyHTML('qualAlerta', alertas, 5, a => `<tr>
       <td><div class="prodcell">
         ${a.imagem ? `<img class="thumb" src="${esc(a.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
         <div><div class="prodname">${esc(a.nome)}</div><div class="asincode">${esc(a.asin)}</div></div>
@@ -543,7 +576,7 @@ async function iniciarDashboard() {
       <td>${a.compsD.map(ck => `<span class="tag bad" style="margin-right:3px">${esc(COMP_LABEL[ck] || ck)}</span>`).join('')}</td>
       <td class="num">${NUM2(a.score)}</td>
       <td>${gradeTag(a.grau)}</td>
-    </tr>`).join('');
+    </tr>`);
 
     // ---- tabela principal: busca, filtro por grau, ordenação ----
     let linhas = linhasTodas;
@@ -567,7 +600,7 @@ async function iniciarDashboard() {
     const tbody = document.querySelector('#tblQualidade tbody');
     if (!linhas.length) { renderEmptyRow(tbody, 10, linhasTodas.length ? 'Nenhum produto encontrado.' : 'Sem dados de qualidade ainda para as contas selecionadas.'); return; }
 
-    tbody.innerHTML = linhas.map(l => `<tr>
+    tbody.innerHTML = tbodyHTML('qualidade', linhas, 10, l => `<tr>
       <td><div class="prodcell">
         ${l.imagem ? `<img class="thumb" src="${esc(l.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
         <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></div>
@@ -581,7 +614,7 @@ async function iniciarDashboard() {
       <td>${compBadge(l.comp.atributos)}</td>
       <td>${compBadge(l.comp.aplus)}</td>
       <td>${l.variacaoAplicavel ? compBadge(l.comp.variacoes) : '<span class="tag muted">N/A</span>'}</td>
-    </tr>`).join('');
+    </tr>`);
   }
 
   /* ------------------------------------------------------------------------
@@ -700,13 +733,13 @@ async function iniciarDashboard() {
     if (!temDado) { renderEmptyRow(tbody, 5, 'Sem dados de saúde de listings para as contas selecionadas.'); return; }
     if (!linhas.length) { renderEmptyRow(tbody, 5, totalSupr ? 'Nenhum ASIN encontrado com essa busca.' : 'Nenhum ASIN suprimido nas contas selecionadas.'); return; }
 
-    tbody.innerHTML = linhas.map(l => `<tr>
+    tbody.innerHTML = tbodyHTML('suprimidos', linhas, 5, l => `<tr>
       ${celulaProdutoListing(l)}
       <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
       <td>${esc(l.sku) || '—'}</td>
       <td>${issuesHTML(l.erros, 'erro')}</td>
       <td class="num">${NUM(l.qtdAvisos)}</td>
-    </tr>`).join('');
+    </tr>`);
   }
 
   function renderListingsAvisos(todas){
@@ -722,13 +755,13 @@ async function iniciarDashboard() {
     if (!temDado) { renderEmptyRow(tbody, 5, 'Sem dados de saúde de listings para as contas selecionadas.'); return; }
     if (!linhas.length) { renderEmptyRow(tbody, 5, totalAv ? 'Nenhum ASIN encontrado com essa busca.' : 'Nenhum ASIN com aviso (fora os suprimidos) nas contas selecionadas.'); return; }
 
-    tbody.innerHTML = linhas.map(l => `<tr>
+    tbody.innerHTML = tbodyHTML('avisos', linhas, 5, l => `<tr>
       ${celulaProdutoListing(l)}
       <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
       <td>${esc(l.sku) || '—'}</td>
       <td>${issuesHTML(l.avisos, 'aviso')}</td>
       <td>${l.qtdErros > 0 ? issuesHTML(l.erros, 'erro') : '<span class="empty" style="padding:0">—</span>'}</td>
-    </tr>`).join('');
+    </tr>`);
   }
 
   function renderListings(){
@@ -959,7 +992,7 @@ async function iniciarDashboard() {
     if (!temDado) { renderEmptyRow(tbody, 13, 'Sem pedidos no dados_vendor.json para as contas selecionadas (rode o transformar_vendor.py atualizado).'); return; }
     if (!linhas.length) { renderEmptyRow(tbody, 13, 'Nenhum pedido com esses filtros.'); return; }
 
-    tbody.innerHTML = linhas.map(p => {
+    tbody.innerHTML = tbodyHTML('pedidos', linhas, 13, p => {
       const t = p.tot || {};
       const chave = p.k + '|' + p.po;
       const aberto = state.pedAbertos.has(chave);
@@ -997,7 +1030,7 @@ async function iniciarDashboard() {
         </td></tr>`;
       }
       return html;
-    }).join('');
+    });
   }
   function linhasItensPedidos(lista){
     const rows = [['Data do pedido','Nº do pedido','Conta','Status do pedido','Atrasado (dias)','Início janela','Fim janela','ASIN','EAN','Produto',
@@ -1196,11 +1229,11 @@ async function iniciarDashboard() {
     });
     const tbRec = document.querySelector('#tblRecompra tbody');
     if (!linhasRec.length) renderEmptyRow(tbRec, 4, 'Sem dados de recompra/pedidos não atendidos para as contas selecionadas.');
-    else tbRec.innerHTML = linhasRec.sort((a,b)=>b.rec-a.rec).slice(0,50).map(l => `<tr>
+    else tbRec.innerHTML = tbodyHTML('recompra', linhasRec.sort((a,b)=>b.rec-a.rec), 4, l => `<tr>
       <td><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></td>
       <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
       <td class="num">${NUM(l.rec)}</td><td class="num">${NUM(l.na)}</td>
-    </tr>`).join('');
+    </tr>`);
 
     // cesta de compras
     const linhasCesta = [];
@@ -1214,7 +1247,7 @@ async function iniciarDashboard() {
     });
     const tbCesta = document.querySelector('#tblCesta tbody');
     if (!linhasCesta.length) renderEmptyRow(tbCesta, 4, 'Sem dados de cesta de compras capturados ainda.');
-    else tbCesta.innerHTML = linhasCesta.map(l => `<tr><td>${esc(l.nome)}</td><td>${esc(l.comNome)}</td><td class="num">${NUM(l.rank)}</td><td class="num">${PCT(l.pct)}</td></tr>`).join('');
+    else tbCesta.innerHTML = tbodyHTML('cesta', linhasCesta, 4, l => `<tr><td>${esc(l.nome)}</td><td>${esc(l.comNome)}</td><td class="num">${NUM(l.rank)}</td><td class="num">${PCT(l.pct)}</td></tr>`);
 
     // termos de busca — formato bruto ainda não confirmado; exibição defensiva
     const linhasTermos = [];
@@ -1227,7 +1260,7 @@ async function iniciarDashboard() {
     });
     const tbTermos = document.querySelector('#tblTermos tbody');
     if (!linhasTermos.length) renderEmptyRow(tbTermos, 2, 'Sem dados de termos de busca capturados ainda.');
-    else tbTermos.innerHTML = linhasTermos.map(l => `<tr><td>${esc(l.termo)}</td><td>${esc(CONTA_NOME[l.contaKey])}</td></tr>`).join('');
+    else tbTermos.innerHTML = tbodyHTML('termos', linhasTermos, 2, l => `<tr><td>${esc(l.termo)}</td><td>${esc(CONTA_NOME[l.contaKey])}</td></tr>`);
   }
 
   function renderTempoReal(){
@@ -1274,28 +1307,58 @@ async function iniciarDashboard() {
     }).join('');
   }
 
-  function render(){
-    const agregado = agregarPeriodo();
-    const { meses, porConta, porMes, tot } = agregado;
-    const diagGrupos = agregarDiagnosticos();
+  /* ------------------------------------------------------------------------
+     7b. PÁGINAS E NAVEGAÇÃO
+     Cada bloco do dashboard é uma página (menu lateral, rota por hash: #/vendas).
+     Só a página aberta é desenhada, e filtros (conta, período) redesenham só ela.
+     ------------------------------------------------------------------------ */
+  const PAGINAS = {
+    inicio:    { titulo:'Início', sub:'Visão geral, diagnósticos e detalhe por conta', periodo:true,
+                 render: ag => { renderKPIs(ag.tot, ag.meses, agregarDiagnosticos()); renderDiagnosticos(); renderDetalhePorConta(ag.porConta, ag.meses); } },
+    vendas:    { titulo:'Vendas e margem', sub:'Faturamento e margem no período', periodo:true,
+                 render: ag => { renderFaturamento(ag.porConta, ag.meses); renderMargemMarkup(ag.porMes, ag.meses); } },
+    estoque:   { titulo:'Estoque', sub:'Composição, conversão, cobertura e ruptura', periodo:true,
+                 render: ag => renderEstoque(ag.porMes, ag.meses) },
+    compras:   { titulo:'Compras e pedidos', sub:'Sell-in vs. sell-out e pedidos de compra (POs)', periodo:true,
+                 render: ag => { renderSellIn(ag.meses); renderPedidos(); } },
+    previsao:  { titulo:'Previsão de demanda', sub:'Projeção da Amazon para os próximos meses (não usa o filtro de período)', periodo:false,
+                 render: () => renderPrevisao() },
+    produtos:  { titulo:'Produtos', sub:'Catálogo, concentração de receita e curva ABC', periodo:true,
+                 render: ag => { renderCatalogo(ag); renderProdutosConcentracao(ag.meses); renderABC(ag.meses); } },
+    retencao:  { titulo:'Retenção e tempo real', sub:'Recompra, cesta de compras, termos de busca e últimas 24h', periodo:false,
+                 render: () => { renderRetencao(); renderTempoReal(); } },
+    listings:  { titulo:'Saúde dos Listings', sub:'Status, erros e avisos reais da Amazon (última captura)', periodo:false,
+                 render: () => renderListings() },
+    qualidade: { titulo:'Qualidade de catálogo (CDQ)', sub:'Estimativa própria; fonte diferente de Saúde dos Listings', periodo:false,
+                 render: () => renderQualidade() }
+  };
 
-    renderKPIs(tot, meses, diagGrupos);
-    renderDiagnosticos();
-    renderFaturamento(porConta, meses);
-    renderEstoque(porMes, meses);
-    renderSellIn(meses);
-    renderPedidos();
-    renderMargemMarkup(porMes, meses);
-    renderPrevisao();
-    renderCatalogo(agregado);
-    renderProdutosConcentracao(meses);
-    renderABC(meses);
-    renderRetencao();
-    renderTempoReal();
-    renderDetalhePorConta(porConta, meses);
-    renderListings();
-    renderQualidade();
+  function paginaDoHash(){
+    const h = (location.hash || '').replace(/^#\/?/, '');
+    return PAGINAS[h] ? h : 'inicio';
   }
+
+  // desenha a página aberta com os filtros atuais
+  function renderPagina(){
+    const p = PAGINAS[state.pagina];
+    p.render(p.periodo ? agregarPeriodo() : null);
+  }
+
+  // abre uma página: mostra só ela, marca o menu, ajusta título e filtros, e desenha
+  function irPara(id){
+    state.pagina = id;
+    const p = PAGINAS[id];
+    document.querySelectorAll('.page').forEach(el => { el.hidden = (el.id !== 'page-' + id); });
+    document.querySelectorAll('#sideNav a').forEach(a => a.classList.toggle('on', a.dataset.pagina === id));
+    document.getElementById('pageTitle').textContent = p.titulo;
+    document.getElementById('pageSub').textContent = p.sub;
+    ['fgDe','fgAte'].forEach(fid => { document.getElementById(fid).style.display = p.periodo ? '' : 'none'; });
+    document.title = p.titulo + ' · Grupo START — Vendor Central';
+    resetLim();
+    renderPagina();
+    try { window.scrollTo(0, 0); } catch (e) {}
+  }
+  window.addEventListener('hashchange', () => irPara(paginaDoHash()));
 
   /* ------------------------------------------------------------------------
      8. EXPORTAÇÃO
@@ -1388,7 +1451,7 @@ async function iniciarDashboard() {
   /* ------------------------------------------------------------------------
      9. INICIALIZAÇÃO
      ------------------------------------------------------------------------ */
-  render();
+  irPara(paginaDoHash());
 }
 
 iniciarDashboard().catch(err => {
