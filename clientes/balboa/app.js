@@ -1307,29 +1307,35 @@ async function iniciarDashboard() {
   function renderEmptyRow(tbody, colspan, msg){ tbody.innerHTML = `<tr><td colspan="${colspan}" class="empty">${esc(msg)}</td></tr>`; }
 
   function renderRetencao(){
-    // recompra & não atendidos
+    const semanas = new Set();
+    // recompra & não atendidos (sell-in) + recompra de clientes (Brand Analytics)
     const linhasRec = [];
     state.contas.forEach(k => {
-      const c = CONTAS[k];
-      const asins = new Set([...Object.keys(c.repetidos||{}), ...Object.keys(c.naoAtendidos||{})]);
+      const c = CONTAS[k], ex = c.extras || {};
+      const ba = {}; (ex.recompra || []).forEach(r => { ba[r.asin] = r; });
+      if (ex.semanaBrand && ex.semanaBrand.recompra) semanas.add(ex.semanaBrand.recompra);
+      const asins = new Set([...Object.keys(c.repetidos||{}), ...Object.keys(c.naoAtendidos||{}), ...Object.keys(ba)]);
       asins.forEach(asin => {
-        const info = catalogInfo(k, asin);
-        linhasRec.push({ nome:info.nome, asin, contaKey:k, rec:(c.repetidos||{})[asin]||0, na:(c.naoAtendidos||{})[asin]||0 });
+        const info = catalogInfo(k, asin), r = ba[asin];
+        linhasRec.push({ nome:info.nome, asin, contaKey:k, rec:(c.repetidos||{})[asin]||0, na:(c.naoAtendidos||{})[asin]||0,
+                         pctRec: r ? r.pctRec : null, receitaRec: r ? r.receitaRec : null });
       });
     });
     const tbRec = document.querySelector('#tblRecompra tbody');
-    if (!linhasRec.length) renderEmptyRow(tbRec, 4, 'Sem dados de recompra/pedidos não atendidos para as contas selecionadas.');
-    else tbRec.innerHTML = tbodyHTML('recompra', linhasRec.sort((a,b)=>b.rec-a.rec), 4, l => `<tr>
+    if (!linhasRec.length) renderEmptyRow(tbRec, 6, 'Sem dados de recompra/pedidos não atendidos para as contas selecionadas.');
+    else tbRec.innerHTML = tbodyHTML('recompra', linhasRec.sort((a,b)=> (b.receitaRec||0)-(a.receitaRec||0) || b.rec-a.rec), 6, l => `<tr>
       <td><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></td>
       <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
       <td class="num">${NUM(l.rec)}</td><td class="num">${NUM(l.na)}</td>
+      <td class="num">${l.pctRec == null ? '—' : PCT(l.pctRec)}</td><td class="num">${l.receitaRec == null ? '—' : MOEDA2(l.receitaRec)}</td>
     </tr>`);
 
     // cesta de compras
     const linhasCesta = [];
     state.contas.forEach(k => {
-      const arr = ((CONTAS[k].extras||{}).cestaCompras) || [];
-      arr.forEach(item => {
+      const ex = CONTAS[k].extras || {};
+      if (ex.semanaBrand && ex.semanaBrand.cestaCompras) semanas.add(ex.semanaBrand.cestaCompras);
+      (ex.cestaCompras || []).forEach(item => {
         const info = catalogInfo(k, item.asin);
         const infoCom = catalogInfo(k, item.com);
         linhasCesta.push({ nome:info.nome, comNome: infoCom.nome || item.com, rank:item.rank, pct:item.pct });
@@ -1339,18 +1345,28 @@ async function iniciarDashboard() {
     if (!linhasCesta.length) renderEmptyRow(tbCesta, 4, 'Sem dados de cesta de compras capturados ainda.');
     else tbCesta.innerHTML = tbodyHTML('cesta', linhasCesta, 4, l => `<tr><td>${esc(l.nome)}</td><td>${esc(l.comNome)}</td><td class="num">${NUM(l.rank)}</td><td class="num">${PCT(l.pct)}</td></tr>`);
 
-    // termos de busca — formato bruto ainda não confirmado; exibição defensiva
+    // termos de busca (linhas do relatório cujo produto clicado é da conta; ranking 1 = termo mais buscado)
     const linhasTermos = [];
     state.contas.forEach(k => {
-      const arr = ((CONTAS[k].extras||{}).termosBusca) || [];
-      arr.forEach(item => {
-        const termo = item.searchTerm || item.termo || item.termoBusca || JSON.stringify(item);
-        linhasTermos.push({ termo, contaKey:k });
+      const ex = CONTAS[k].extras || {};
+      if (ex.semanaBrand && ex.semanaBrand.termosBusca) semanas.add(ex.semanaBrand.termosBusca);
+      (ex.termosBusca || []).forEach(item => {
+        const termo = item.termo || item.searchTerm || item.termoBusca || JSON.stringify(item);
+        const info = item.asin ? catalogInfo(k, item.asin) : null;
+        linhasTermos.push({ termo, contaKey:k, asin:item.asin, nome: info ? info.nome : '', freq:item.freq, click:item.click, conv:item.conv });
       });
     });
+    linhasTermos.sort((a,b) => (a.freq ?? 1e12) - (b.freq ?? 1e12));
     const tbTermos = document.querySelector('#tblTermos tbody');
-    if (!linhasTermos.length) renderEmptyRow(tbTermos, 2, 'Sem dados de termos de busca capturados ainda.');
-    else tbTermos.innerHTML = tbodyHTML('termos', linhasTermos, 2, l => `<tr><td>${esc(l.termo)}</td><td>${esc(CONTA_NOME[l.contaKey])}</td></tr>`);
+    if (!linhasTermos.length) renderEmptyRow(tbTermos, 6, 'Sem dados de termos de busca capturados ainda.');
+    else tbTermos.innerHTML = tbodyHTML('termos', linhasTermos, 6, l => `<tr><td>${esc(l.termo)}</td>
+      <td><div class="prodname">${esc(l.nome || l.asin || '')}</div>${l.asin ? `<div class="asincode">${esc(l.asin)}</div>` : ''}</td>
+      <td>${esc(CONTA_NOME[l.contaKey])}</td><td class="num">${l.freq == null ? '—' : NUM(l.freq)}</td>
+      <td class="num">${l.click == null ? '—' : PCT(l.click)}</td><td class="num">${l.conv == null ? '—' : PCT(l.conv)}</td></tr>`);
+
+    const desc = document.getElementById('retDesc');
+    if (desc) desc.textContent = 'Brand Analytics, semana fechada' + (semanas.size ? ' (' + [...semanas].join('; ') + ')' : '') +
+      '. Termos de busca: só os termos em que um produto da conta está entre os mais clicados. Onde não houver dado, a aba mostra vazio';
   }
 
   function renderDetalhePorConta(porConta, meses){
