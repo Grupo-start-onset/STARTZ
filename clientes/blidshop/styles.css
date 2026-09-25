@@ -184,3 +184,8 @@ table.tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 /* listas de Saúde dos Listings: dá largura à coluna do produto (a de erros/avisos é larga) */
 #tblListSuprimidos td:first-child,#tblListAvisos td:first-child{min-width:260px}
 #tblListSuprimidos .prodname,#tblListAvisos .prodname{max-width:none}
+
+/* aviso de carregamento / erro ao baixar dados */
+.loading{background:var(--tealS);color:#0B4A4E;border-radius:10px;padding:14px 18px;font-size:.85rem;font-weight:600;margin-bottom:16px}
+.loading.err{background:var(--badS);color:var(--bad)}
+.loading[hidden]{display:none}

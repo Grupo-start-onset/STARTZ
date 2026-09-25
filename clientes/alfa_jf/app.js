@@ -13,14 +13,28 @@
      7b. Páginas e navegação (uma página por bloco; só a página aberta é desenhada)
      8. Exportação (Excel)
      9. Inicialização
+   Carregamento de dados: dados/index.json + dados/<conta>.json sob demanda (rápido);
+   se o índice não existir (pastas de cliente, ou antes da 1ª publicação com o novo
+   publicar_github.py), cai para o dados_vendor.json completo.
    ============================================================================ */
 
 let CONTAS = null;
+let INDICE = null; // índice do modo por conta: { geradoEm, contas: { <id>: {nome, meses, futuros, sellin, pedidos} } }
 
 async function iniciarDashboard() {
-  const resp = await fetch('dados_vendor.json');
-  if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ao buscar dados_vendor.json');
-  CONTAS = await resp.json();
+  // modo rápido: só o índice (poucos KB); cada conta é baixada quando escolhida
+  try {
+    const ri = await fetch('dados/index.json');
+    if (ri.ok) { const idx = await ri.json(); if (idx && idx.contas && Object.keys(idx.contas).length) INDICE = idx; }
+  } catch (e) { /* sem índice: usa o arquivo completo */ }
+
+  if (INDICE) {
+    CONTAS = {};
+  } else {
+    const resp = await fetch('dados_vendor.json');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ao buscar dados_vendor.json');
+    CONTAS = await resp.json();
+  }
 
   /* ------------------------------------------------------------------------
      1. FORMATADORES E CONSTANTES
@@ -41,12 +55,24 @@ async function iniciarDashboard() {
   /* ------------------------------------------------------------------------
      2. ÍNDICES DERIVADOS
      ------------------------------------------------------------------------ */
-  const CONTA_KEYS = Object.keys(CONTAS);
+  // META: nome e listas de meses de cada conta. Vem do índice (sem baixar a conta) ou, no
+  // modo arquivo completo, é calculado dos próprios dados.
+  function metaDe(c){
+    return {
+      nome: c.nome,
+      meses: Object.keys(c.aggVendas || {}),
+      futuros: Object.keys(c.previsaoMes || {}),
+      sellin: [...Object.keys(c.sellinMes || {}), ...Object.keys(c.sellinRecebidoMes || {})],
+      pedidos: (c.pedidos || []).map(p => (p.data || '').slice(0,7)).filter(Boolean)
+    };
+  }
+  const META = INDICE ? INDICE.contas : Object.fromEntries(Object.keys(CONTAS).map(k => [k, metaDe(CONTAS[k])]));
+  const CONTA_KEYS = Object.keys(META);
   const CONTA_NOME = {};
-  CONTA_KEYS.forEach(k => CONTA_NOME[k] = CONTAS[k].nome || k);
+  CONTA_KEYS.forEach(k => CONTA_NOME[k] = META[k].nome || k);
 
   const ALL_MONTHS = Array.from(new Set(
-    CONTA_KEYS.flatMap(k => Object.keys(CONTAS[k].aggVendas || {}))
+    CONTA_KEYS.flatMap(k => META[k].meses || [])
   )).sort();
 
   // catálogo: nome/imagem/marca/bsr de um ASIN numa conta, com fallback seguro
@@ -68,20 +94,61 @@ async function iniciarDashboard() {
 
   // meses futuros disponíveis em previsaoMes, por conta
   const FUTURE_MONTHS = Array.from(new Set(
-    CONTA_KEYS.flatMap(k => Object.keys(CONTAS[k].previsaoMes || {}))
+    CONTA_KEYS.flatMap(k => META[k].futuros || [])
   )).sort();
 
   // meses com dado de sell-in (criação do PO em sellinMes ou recebimento em sellinRecebidoMes),
   // por conta (cobertura pode não bater com ALL_MONTHS)
   const SELLIN_MONTHS = Array.from(new Set(
-    CONTA_KEYS.flatMap(k => [...Object.keys(CONTAS[k].sellinMes || {}), ...Object.keys(CONTAS[k].sellinRecebidoMes || {})])
+    CONTA_KEYS.flatMap(k => META[k].sellin || [])
   )).sort();
+
+  /* ------------------------------------------------------------------------
+     2b. CARREGAMENTO SOB DEMANDA DAS CONTAS (modo por conta)
+     ------------------------------------------------------------------------ */
+  const CHAVE_CONTA = 'startz_conta'; // conta escolhida por último, lembrada neste navegador
+  let reqId = 0;
+
+  // garante que as contas pedidas estão em CONTAS; devolve true se prontas, false se falhou
+  // ou se uma escolha mais nova passou na frente (meu !== reqId)
+  async function carregarContas(alvo, meu){
+    const faltam = alvo.filter(k => !CONTAS[k]);
+    if (!faltam.length) return true;
+    const load = document.getElementById('loading');
+    load.className = 'loading';
+    load.textContent = 'Carregando ' + (faltam.length > 1 ? faltam.length + ' contas' : CONTA_NOME[faltam[0]]) + '…';
+    load.hidden = false;
+    try {
+      await Promise.all(faltam.map(async k => {
+        const r = await fetch('dados/' + k + '.json');
+        if (!r.ok) throw new Error('HTTP ' + r.status + ' ao buscar dados/' + k + '.json');
+        CONTAS[k] = await r.json();
+      }));
+    } catch (e) {
+      console.error(e);
+      if (meu === reqId) { load.className = 'loading err'; load.textContent = 'Não foi possível carregar os dados: ' + e.message; }
+      return false;
+    }
+    if (meu !== reqId) return false;
+    load.hidden = true;
+    return true;
+  }
+
+  // conta inicial: no modo por conta, a última escolhida (ou a primeira), para baixar pouco;
+  // no modo arquivo completo, todas (como sempre foi)
+  let contaInicial = '__todas';
+  if (INDICE) {
+    let salva = null;
+    try { salva = localStorage.getItem(CHAVE_CONTA); } catch (e) {}
+    contaInicial = (salva === '__todas' || (salva && META[salva])) ? salva : CONTA_KEYS[0];
+  }
+  const contasIniciais = contaInicial === '__todas' ? [...CONTA_KEYS] : [contaInicial];
 
   /* ------------------------------------------------------------------------
      3. ESTADO E FILTROS
      ------------------------------------------------------------------------ */
   let state = {
-    contas: [...CONTA_KEYS],
+    contas: contasIniciais,
     de: ALL_MONTHS[0],
     ate: ALL_MONTHS[ALL_MONTHS.length-1],
     catBusca: '',
@@ -124,8 +191,18 @@ async function iniciarDashboard() {
     selConta.appendChild(o);
   });
   if (CONTA_KEYS.length <= 1) document.getElementById('fgConta').style.display = 'none'; // dashboard de cliente: conta única
-  selConta.onchange = () => {
-    state.contas = selConta.value === '__todas' ? [...CONTA_KEYS] : [selConta.value];
+  selConta.value = contaInicial;
+  let contaSelecionada = contaInicial;
+  selConta.onchange = async () => {
+    const escolha = selConta.value;
+    const alvo = escolha === '__todas' ? [...CONTA_KEYS] : [escolha];
+    const meu = ++reqId;
+    const ok = await carregarContas(alvo, meu);
+    if (meu !== reqId) return;               // uma escolha mais nova passou na frente
+    if (!ok) { selConta.value = contaSelecionada; return; }
+    contaSelecionada = escolha;
+    state.contas = alvo;
+    try { localStorage.setItem(CHAVE_CONTA, escolha); } catch (e) {}
     resetLim();
     renderPagina();
   };
@@ -165,7 +242,7 @@ async function iniciarDashboard() {
 
   // filtros da seção de pedidos de compra
   const PED_MESES = Array.from(new Set(
-    CONTA_KEYS.flatMap(k => (CONTAS[k].pedidos || []).map(p => (p.data || '').slice(0,7)).filter(Boolean))
+    CONTA_KEYS.flatMap(k => META[k].pedidos || [])
   )).sort().reverse();
   const pedMesEl = document.getElementById('pedMes');
   PED_MESES.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = MESLABEL(m); pedMesEl.appendChild(o); });
@@ -1451,6 +1528,13 @@ async function iniciarDashboard() {
   /* ------------------------------------------------------------------------
      9. INICIALIZAÇÃO
      ------------------------------------------------------------------------ */
+  if (INDICE) {
+    const el = document.getElementById('geradoEm');
+    const d = new Date(INDICE.geradoEm);
+    if (el && !isNaN(d)) el.textContent = 'Dados de ' + d.toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'});
+  }
+  if (!(await carregarContas(state.contas, ++reqId))) return; // mensagem de erro já está na tela
+  document.getElementById('loading').hidden = true;
   irPara(paginaDoHash());
 }
 
