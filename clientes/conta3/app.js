@@ -1540,7 +1540,7 @@ async function iniciarDashboard() {
     let ultima = '', atualizado = '';
     contas.forEach(k => {
       const d = TR[k];
-      (d.horas || []).forEach(x => horas.push({ k, asin:x.asin, h:x.h, u:x.u || 0, r:x.r || 0, v:x.v || 0 }));
+      (d.horas || []).forEach(x => horas.push({ k, asin:x.asin, h:x.h, u:x.u || 0, r:x.r || 0, v:x.v || 0, temV: x.v != null }));
       if ((d.ultima_hora || '') > ultima) ultima = d.ultima_hora;
       if ((d.atualizado_em || '') > atualizado) atualizado = d.atualizado_em;
       if ((d.falhas || []).length) falhas.push(CONTA_NOME[k] + ': ' + d.falhas.join(', '));
@@ -1551,13 +1551,21 @@ async function iniciarDashboard() {
     const zero = () => ({ u:0, r:0, v:0 });
     const horaHoje = Array.from({length:24}, zero), horaOntem = Array.from({length:24}, zero);
     const tot = { hoje:zero(), ontem:zero() };
+    // Tráfego chega com mais atraso que vendas (a Amazon exige folga maior): visitas e conversão são
+    // comparadas só até a última hora que TEM tráfego, senão a conversão de hoje sairia inflada.
+    const ultimaV = horas.reduce((m, x) => x.temV && x.h > m ? x.h : m, '');
+    const ateV = ultimaV && diaBRT(ultimaV) === hoje ? horaBRT(ultimaV) : -1;
+    const totV = { hoje:zero(), ontem:zero() };
     const porAsin = {};
     const t24 = Date.parse(ultima) - 23 * 3600 * 1000;   // últimas 24h: até a hora 'ultima'
     horas.forEach(x => {
       const dia = diaBRT(x.h), hr = horaBRT(x.h);
-      const p = porAsin[x.k + '|' + x.asin] || (porAsin[x.k + '|' + x.asin] = { k:x.k, asin:x.asin, hoje:zero(), ontem:zero(), u24:0, r24:0 });
+      const p = porAsin[x.k + '|' + x.asin] || (porAsin[x.k + '|' + x.asin] = { k:x.k, asin:x.asin, hoje:zero(), ontem:zero(), tv:{ hoje:zero(), ontem:zero() }, u24:0, r24:0 });
       if (Date.parse(x.h) >= t24) { p.u24 += x.u; p.r24 += x.r; }
       const soma = (o) => { o.u += x.u; o.r += x.r; o.v += x.v; };
+      const somaV = (o) => { o.u += x.u; o.v += x.v; };
+      if (dia === hoje && hr <= ateV) { somaV(totV.hoje); somaV(p.tv.hoje); }
+      else if (dia === ontem && hr <= ateV) { somaV(totV.ontem); somaV(p.tv.ontem); }
       if (dia === hoje && hr <= ate) { soma(horaHoje[hr]); soma(tot.hoje); soma(p.hoje); }
       else if (dia === ontem) {
         soma(horaOntem[hr]);                                   // gráfico: ontem inteiro
@@ -1576,7 +1584,7 @@ async function iniciarDashboard() {
       });
       Object.keys(TR[k].estoque_total || {}).forEach(h => { serie[h] = (serie[h] || 0) + TR[k].estoque_total[h]; });
     });
-    return { contas, ultima, atualizado, hoje, ate, ontem, horaHoje, horaOntem, tot, porAsin, estAgora, comEst, semEst, estMap, serie, falhas };
+    return { contas, ultima, ultimaV, ateV, totV, atualizado, hoje, ate, ontem, horaHoje, horaOntem, tot, porAsin, estAgora, comEst, semEst, estMap, serie, falhas };
   }
 
   function trStatus(a){
@@ -1611,12 +1619,13 @@ async function iniciarDashboard() {
   };
 
   // gráfico hoje x ontem por hora do dia
-  function trGraficoDia(id, canvasId, a, campo, fmt){
+  function trGraficoDia(id, canvasId, a, campo, fmt, ateLim){
+    const lim = ateLim == null ? a.ate : ateLim;
     destroyChart(id);
     charts[id] = new Chart(document.getElementById(canvasId), {
       type:'line',
       data:{ labels: horasDia, datasets:[
-        { label:'Hoje (' + DM(a.hoje) + ')', data: a.horaHoje.map((x, i) => i <= a.ate ? x[campo] : null), borderColor:'#17868C', backgroundColor:'#DCEEEF', fill:true, tension:.25, pointRadius:2 },
+        { label:'Hoje (' + DM(a.hoje) + ')', data: a.horaHoje.map((x, i) => i <= lim ? x[campo] : null), borderColor:'#17868C', backgroundColor:'#DCEEEF', fill:true, tension:.25, pointRadius:2 },
         { label:'Ontem (' + DM(a.ontem) + ')', data: a.horaOntem.map(x => x[campo]), borderColor:'#9C6510', backgroundColor:'transparent', borderDash:[5,3], tension:.25, pointRadius:0 }
       ] },
       options: { ...baseGridOpts(), interaction:{ mode:'index', intersect:false },
@@ -1646,24 +1655,24 @@ async function iniciarDashboard() {
   }
 
   function trTrafego(a){
-    const h = a.tot.hoje, o = a.tot.ontem;
+    const h = a.totV.hoje, o = a.totV.ontem;      // só até a última hora com tráfego (chega com atraso)
     const dV = varPct(h.v, o.v);
     const cH = h.v > 0 ? h.u / h.v : null, cO = o.v > 0 ? o.u / o.v : null;
     let pico = -1, vPico = 0;
-    a.horaHoje.forEach((x, i) => { if (i <= a.ate && x.v > vPico) { vPico = x.v; pico = i; } });
+    a.horaHoje.forEach((x, i) => { if (i <= a.ateV && x.v > vPico) { vPico = x.v; pico = i; } });
     document.getElementById('trKpiTrafego').innerHTML =
       kpiHTML('Visitas hoje', NUM(h.v), `ontem no mesmo período: ${NUM(o.v)} (<span${deltaCls(dV)}>${DELTA(dV)}</span>)`) +
-      kpiHTML('Conversão hoje', PCT(cH), 'unidades ÷ visitas') +
+      kpiHTML('Conversão hoje', PCT(cH), a.ateV >= 0 ? `unidades ÷ visitas, até ${H2(a.ateV)}h (o tráfego chega ~3h depois das vendas)` : 'unidades ÷ visitas') +
       kpiHTML('Conversão ontem', PCT(cO), 'mesmo período') +
       kpiHTML('Hora de pico hoje', pico >= 0 ? H2(pico) + 'h' : '—', pico >= 0 ? NUM(vPico) + ' visitas' : '');
-    trGraficoDia('trTrafego', 'chTrTrafego', a, 'v', NUM);
+    trGraficoDia('trTrafego', 'chTrTrafego', a, 'v', NUM, a.ateV);
 
-    const linhas = Object.values(a.porAsin).filter(p => p.hoje.v).sort((x, y) => y.hoje.v - x.hoje.v);
+    const linhas = Object.values(a.porAsin).filter(p => p.tv.hoje.v).sort((x, y) => y.tv.hoje.v - x.tv.hoje.v);
     const tb = document.querySelector('#tblTrTrafego tbody');
     if (!linhas.length) renderEmptyRow(tb, 7, 'Sem visitas hoje até a última hora capturada (ou o relatório de tráfego falhou na captura).');
-    else tb.innerHTML = tbodyHTML('trTrafego', linhas, 7, p => { const d = varPct(p.hoje.v, p.ontem.v); return `<tr>${celulaProd(p.k, p.asin)}
-      <td class="num">${NUM(p.hoje.v)}</td><td class="num">${NUM(p.hoje.u)}</td><td class="num">${PCT(p.hoje.v > 0 ? p.hoje.u / p.hoje.v : null)}</td>
-      <td class="num">${NUM(p.ontem.v)}</td><td class="num"${deltaCls(d)}>${DELTA(d)}</td></tr>`; });
+    else tb.innerHTML = tbodyHTML('trTrafego', linhas, 7, p => { const d = varPct(p.tv.hoje.v, p.tv.ontem.v); return `<tr>${celulaProd(p.k, p.asin)}
+      <td class="num">${NUM(p.tv.hoje.v)}</td><td class="num">${NUM(p.tv.hoje.u)}</td><td class="num">${PCT(p.tv.hoje.v > 0 ? p.tv.hoje.u / p.tv.hoje.v : null)}</td>
+      <td class="num">${NUM(p.tv.ontem.v)}</td><td class="num"${deltaCls(d)}>${DELTA(d)}</td></tr>`; });
   }
 
   function trEstoque(a){
