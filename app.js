@@ -11,6 +11,8 @@
      6c. Saúde dos Listings (status/erros/avisos reais da Amazon, bloco `qualidadeListings`)
      7. Renderização — uma função por seção do dashboard
      7b. Páginas e navegação (uma página por bloco; só a página aberta é desenhada)
+     7c. Mês em andamento por semana (bloco semanas)
+     7d. Tempo real por hora (tempo_real/<conta>.json)
      8. Exportação (Excel)
      9. Inicialização
    Carregamento de dados: dados/index.json + dados/<conta>.json sob demanda (rápido);
@@ -165,7 +167,8 @@ async function iniciarDashboard() {
     pedMes: '',
     pedAbertos: new Set(),
     lim: {},
-    pagina: 'inicio'
+    pagina: 'inicio',
+    trTab: 'vendas'
   };
 
   // ---- paginação de tabelas: mostra LIM_PASSO linhas e um botão "Mostrar mais" ----
@@ -257,14 +260,20 @@ async function iniciarDashboard() {
     renderPedidos();
   });
 
-  // abas da seção de retenção
-  document.querySelectorAll('#retTabs .tabbtn').forEach(btn => {
-    btn.onclick = () => {
-      document.querySelectorAll('#retTabs .tabbtn').forEach(b => b.classList.remove('on'));
-      document.querySelectorAll('.tabpanel').forEach(p => p.classList.remove('on'));
-      btn.classList.add('on');
-      document.getElementById('tab' + btn.dataset.tab[0].toUpperCase() + btn.dataset.tab.slice(1)).classList.add('on');
-    };
+  // abas (Retenção e Tempo real): cada botão aponta para o painel por data-panel;
+  // na página Tempo real, trocar de aba redesenha (gráfico não desenha dentro de painel oculto)
+  document.querySelectorAll('.tabs').forEach(tabs => {
+    tabs.querySelectorAll('.tabbtn').forEach(btn => {
+      btn.onclick = () => {
+        const raiz = tabs.parentElement;
+        tabs.querySelectorAll('.tabbtn').forEach(b => b.classList.remove('on'));
+        Array.from(raiz.children).filter(el => el.classList.contains('tabpanel')).forEach(pn => pn.classList.remove('on'));
+        btn.classList.add('on');
+        const alvo = document.getElementById(btn.dataset.panel);
+        if (alvo) alvo.classList.add('on');
+        if (btn.dataset.tab) { state.trTab = btn.dataset.tab; renderTempoReal(); }
+      };
+    });
   });
 
   // botão "Mostrar mais": aumenta o limite daquela tabela e redesenha só ela
@@ -277,7 +286,11 @@ async function iniciarDashboard() {
     pedidos:    () => renderPedidos(),
     recompra:   () => renderRetencao(),
     cesta:      () => renderRetencao(),
-    termos:     () => renderRetencao()
+    termos:     () => renderRetencao(),
+    semTop:     () => renderSemanas(),
+    trVendas:   () => renderTempoReal(),
+    trTrafego:  () => renderTempoReal(),
+    trEstoque:  () => renderTempoReal()
   };
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-mais]');
@@ -1340,25 +1353,6 @@ async function iniciarDashboard() {
     else tbTermos.innerHTML = tbodyHTML('termos', linhasTermos, 2, l => `<tr><td>${esc(l.termo)}</td><td>${esc(CONTA_NOME[l.contaKey])}</td></tr>`);
   }
 
-  function renderTempoReal(){
-    const disponiveis = state.contas.filter(k => CONTAS[k].tempoReal);
-    const box = document.getElementById('tempoRealChartBox');
-    const emptyEl = document.getElementById('tempoRealEmpty');
-    if (!disponiveis.length) {
-      box.style.display = 'none';
-      emptyEl.style.display = 'block';
-      emptyEl.textContent = 'Ainda não incorporado ao dados_vendor.json — assim que o formato bruto (vendas/tráfego/estoque hora a hora) for confirmado, esta seção passa a exibir as últimas 24h automaticamente.';
-      return;
-    }
-    // Formato esperado (provisório, a confirmar contra o dado bruto real):
-    // CONTAS[<conta>].tempoReal = { "<asin>": { "<HH:mm ou timestamp ISO>": { vendas, trafego, estoque } } }
-    // ou um bloco agregado por conta/hora. Ajustar assim que houver amostra real.
-    destroyChart('tempoReal');
-    box.style.display = 'none';
-    emptyEl.style.display = 'block';
-    emptyEl.textContent = 'Bloco tempoReal encontrado no JSON, mas o formato ainda não foi mapeado neste gráfico — confirme comigo a estrutura para eu conectar os campos corretos.';
-  }
-
   function renderDetalhePorConta(porConta, meses){
     const ultimoMes = meses[meses.length-1];
     const tbody = document.querySelector('#tblContas tbody');
@@ -1385,13 +1379,352 @@ async function iniciarDashboard() {
   }
 
   /* ------------------------------------------------------------------------
+     7c. MÊS EM ANDAMENTO, POR SEMANA (blocos semanas / aggSem / porAsinSem)
+     O relatório mensal da Amazon só existe com o mês fechado. O mês em andamento
+     aparece por semanas fechadas (domingo a sábado), como no painel Análise de Varejo.
+     Fica SEPARADO dos totais mensais: a semana que cruza a virada do mês inclui dias
+     que já estão no mês anterior.
+     ------------------------------------------------------------------------ */
+  const MESES_LONGOS = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  const DM = d => d.slice(8,10) + '/' + d.slice(5,7);   // 'YYYY-MM-DD' -> 'dd/mm'
+  const DELTA = v => (v==null||!isFinite(v)) ? '—' : (v>=0?'+':'') + (v*100).toLocaleString('pt-BR',{maximumFractionDigits:1}) + '%';
+  const deltaCls = v => (v==null||!isFinite(v)||v===0) ? '' : (v>0 ? ' style="color:var(--good)"' : ' style="color:var(--bad)"');
+  const varPct = (a,b) => b>0 ? (a-b)/b : null;
+
+  // semanas das contas selecionadas; 'semanas' = as do mês da última semana fechada
+  function semanasDoMes(){
+    const mapa = {};
+    state.contas.forEach(k => ((CONTAS[k]||{}).semanas || []).forEach(s => { mapa[s.id] = s; }));
+    const todas = Object.values(mapa).sort((a,b) => a.id.localeCompare(b.id));
+    if (!todas.length) return { semanas:[], todas:[], mes:null };
+    const mes = todas[todas.length-1].fim.slice(0,7);
+    return { semanas: todas.filter(s => s.fim >= mes + '-01'), todas, mes };
+  }
+
+  function somaSemana(id){
+    const t = { rev:0, un:0, env:0, views:0, npmNum:0, npmDen:0, est:0, oosNum:0, oosDen:0, tem:false };
+    state.contas.forEach(k => {
+      const a = ((CONTAS[k]||{}).aggSem || {})[id];
+      if (!a) return;
+      t.tem = true;
+      const rev = a.orderedRevenue || 0;
+      t.rev += rev; t.un += a.orderedUnits || 0; t.env += a.shippedRevenue || 0; t.views += a.glanceViews || 0;
+      if (a.npm != null) { t.npmNum += a.npm * rev; t.npmDen += rev; }
+      t.est += a.sellableUnits || 0;
+      if (a.oosRate != null) { const w = (a.sellableCost || 0) || 1; t.oosNum += a.oosRate * w; t.oosDen += w; }
+    });
+    return t;
+  }
+
+  function renderSemanas(){
+    const { semanas, todas, mes } = semanasDoMes();
+    const vazio = document.getElementById('semVazio'), cont = document.getElementById('semConteudo');
+    const titulo = document.getElementById('semTitulo'), desc = document.getElementById('semDesc');
+    if (!semanas.length) {
+      titulo.textContent = 'Mês em andamento, por semana';
+      desc.textContent = '';
+      cont.hidden = true; vazio.hidden = false;
+      vazio.textContent = 'Sem dados semanais para as contas selecionadas. Rode o capturar_semanal.py, o transformar_vendor.py e o transformar_semanas.py.';
+      destroyChart('semanas');
+      return;
+    }
+    vazio.hidden = true; cont.hidden = false;
+
+    const nomeMes = MESES_LONGOS[parseInt(mes.slice(5,7),10) - 1];
+    titulo.textContent = nomeMes.charAt(0).toUpperCase() + nomeMes.slice(1) + ' de ' + mes.slice(0,4) + ', por semana';
+    const primeira = semanas[0];
+    const cruza = primeira.ini < mes + '-01';
+    desc.textContent = 'O mês ainda não fechou, e a Amazon só libera o relatório mensal com o mês inteiro; por isso ele aparece por semanas fechadas (domingo a sábado), como no painel Análise de Varejo. ' +
+      'Semanas mostradas: ' + semanas.map(s => 'S' + s.num).join(', ') + '. ' +
+      (cruza ? `A semana ${primeira.num} começa em ${DM(primeira.ini)} e inclui dias do mês anterior, que já estão nos totais mensais; por isso estas semanas não entram nas somas dos outros blocos. ` : '') +
+      'Não usa o filtro de período.';
+
+    // ---- linhas: cada semana com a anterior (que pode estar fora do mês) para a variação ----
+    const idxTodas = Object.fromEntries(todas.map((s,i) => [s.id, i]));
+    const linhas = semanas.map(s => {
+      const i = idxTodas[s.id];
+      const t = somaSemana(s.id), ant = i > 0 ? somaSemana(todas[i-1].id) : null;
+      return { s, t, dv: ant && ant.tem ? varPct(t.rev, ant.rev) : null };
+    });
+    const tot = linhas.reduce((a,l) => { a.rev += l.t.rev; a.un += l.t.un; a.views += l.t.views; a.npmNum += l.t.npmNum; a.npmDen += l.t.npmDen; return a; }, { rev:0, un:0, views:0, npmNum:0, npmDen:0 });
+    const ult = linhas[linhas.length-1].t;
+    document.getElementById('semTabDesc').textContent = 'Estoque e ruptura são a posição de cada semana; a linha de total soma receita, unidades e visitas';
+
+    const conv = t => t.views > 0 ? t.un / t.views : null;
+    const npm = t => t.npmDen > 0 ? t.npmNum / t.npmDen : null;
+    const oos = t => t.oosDen > 0 ? t.oosNum / t.oosDen : null;
+    document.querySelector('#tblSemanas tbody').innerHTML = linhas.map(l => `<tr>
+      <td><b>Sem ${l.s.num}</b> <span class="asincode">${DM(l.s.ini)} a ${DM(l.s.fim)}</span></td>
+      <td class="num">${MOEDA(l.t.rev)}</td><td class="num"${deltaCls(l.dv)}>${DELTA(l.dv)}</td>
+      <td class="num">${NUM(l.t.un)}</td><td class="num">${NUM(l.t.views)}</td><td class="num">${PCT(conv(l.t))}</td>
+      <td class="num">${PCT(npm(l.t))}</td><td class="num">${NUM(l.t.est)}</td><td class="num">${PCT(oos(l.t))}</td>
+    </tr>`).join('') + `<tr style="font-weight:700"><td>Total mostrado</td><td class="num">${MOEDA(tot.rev)}</td><td class="num">—</td>
+      <td class="num">${NUM(tot.un)}</td><td class="num">${NUM(tot.views)}</td><td class="num">${PCT(conv(tot))}</td><td class="num">${PCT(npm(tot))}</td>
+      <td class="num">${NUM(ult.est)}</td><td class="num">${PCT(oos(ult))}</td></tr>`;
+
+    destroyChart('semanas');
+    charts.semanas = new Chart(document.getElementById('chSemanas'), {
+      type:'bar',
+      data:{ labels: linhas.map(l => 'Sem ' + l.s.num),
+        datasets:[{ label:'Receita pedida', data: linhas.map(l => l.t.rev), backgroundColor:'#17868C', borderRadius:5 }] },
+      options: { ...baseGridOpts(), plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ title: items => { const s = linhas[items[0].dataIndex].s; return `Semana ${s.num} (${DM(s.ini)} a ${DM(s.fim)})`; },
+                              label: ctx => MOEDA(ctx.raw) } } } }
+    });
+
+    // ---- produtos: soma das semanas mostradas ----
+    const ids = new Set(semanas.map(s => s.id)), ultimoId = semanas[semanas.length-1].id;
+    const prod = [];
+    state.contas.forEach(k => {
+      const p = (CONTAS[k]||{}).porAsinSem || {};
+      Object.keys(p).forEach(asin => {
+        let r = 0, u = 0, v = 0, e = null;
+        Object.keys(p[asin]).forEach(id => {
+          if (!ids.has(id)) return;
+          const x = p[asin][id];
+          r += x.r || 0; u += x.u || 0; v += x.v || 0;
+          if (id === ultimoId && x.e != null) e = x.e;
+        });
+        if (r || u || v) { const info = catalogInfo(k, asin); prod.push({ k, asin, nome:info.nome, imagem:info.imagem, r, u, v, e }); }
+      });
+    });
+    prod.sort((a,b) => b.r - a.r);
+    const tb = document.querySelector('#tblSemTop tbody');
+    if (!prod.length) renderEmptyRow(tb, 7, 'Sem produtos com venda ou visita nas semanas mostradas.');
+    else tb.innerHTML = tbodyHTML('semTop', prod, 7, l => `<tr>
+      <td><div class="prodcell">
+        ${l.imagem ? `<img class="thumb" src="${esc(l.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
+        <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></div>
+      </div></td>
+      <td><span class="tag muted">${esc(CONTA_NOME[l.k])}</span></td>
+      <td class="num">${MOEDA2(l.r)}</td><td class="num">${NUM(l.u)}</td><td class="num">${NUM(l.v)}</td>
+      <td class="num">${PCT(l.v > 0 ? l.u / l.v : null)}</td><td class="num">${l.e == null ? '—' : NUM(l.e)}</td>
+    </tr>`);
+  }
+
+  /* ------------------------------------------------------------------------
+     7d. TEMPO REAL (tempo_real/<conta>.json, gerado pelo capturar_tempo_real.py)
+     Uma linha por ASIN por hora: u = unidades, r = receita, v = visitas.
+     Horário de Brasília = UTC-3 fixo (o Brasil não tem horário de verão desde 2019).
+     ------------------------------------------------------------------------ */
+  const TR_BASE = location.pathname.includes('/clientes/') ? '../../tempo_real/' : 'tempo_real/';
+  const TR = {};            // conta -> objeto do arquivo, ou null (sem arquivo publicado)
+  const TR_T = {};          // conta -> quando foi baixado
+  const TR_TTL = 10 * 60 * 1000;
+  let trReq = 0;
+  const BRT = h => new Date(Date.parse(h) - 3 * 3600 * 1000).toISOString();
+  const diaBRT = h => BRT(h).slice(0,10);
+  const horaBRT = h => parseInt(BRT(h).slice(11,13), 10);
+  const H2 = n => String(n).padStart(2, '0');
+  const diaAnterior = d => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0,10); };
+  const COB = h => h == null ? '—' : (h >= 48 ? NUM(h / 24) + ' d' : NUM(h) + ' h');
+  const kpiHTML = (lab, val, hint, alerta) => `<div class="kpi${alerta ? ' alert' : ''}"><div class="lab">${lab}</div><div class="val">${val}</div><div class="hint">${hint || ''}</div></div>`;
+  const horasDia = Array.from({length:24}, (_, i) => H2(i) + 'h');
+
+  async function carregarTR(contas){
+    await Promise.all(contas.filter(k => !(k in TR) || Date.now() - (TR_T[k] || 0) > TR_TTL).map(async k => {
+      try {
+        const r = await fetch(TR_BASE + k + '.json?t=' + Date.now(), { cache:'no-store' });
+        TR[k] = r.ok ? await r.json() : null;
+      } catch (e) { TR[k] = null; }
+      TR_T[k] = Date.now();
+    }));
+  }
+
+  // agrega as contas selecionadas que têm arquivo; null se não há nada
+  function trAgregar(){
+    const contas = state.contas.filter(k => TR[k]);
+    if (!contas.length) return null;
+    const horas = [], falhas = [];
+    let ultima = '', atualizado = '';
+    contas.forEach(k => {
+      const d = TR[k];
+      (d.horas || []).forEach(x => horas.push({ k, asin:x.asin, h:x.h, u:x.u || 0, r:x.r || 0, v:x.v || 0 }));
+      if ((d.ultima_hora || '') > ultima) ultima = d.ultima_hora;
+      if ((d.atualizado_em || '') > atualizado) atualizado = d.atualizado_em;
+      if ((d.falhas || []).length) falhas.push(CONTA_NOME[k] + ': ' + d.falhas.join(', '));
+    });
+    if (!ultima) return null;
+
+    const hoje = diaBRT(ultima), ate = horaBRT(ultima), ontem = diaAnterior(hoje);
+    const zero = () => ({ u:0, r:0, v:0 });
+    const horaHoje = Array.from({length:24}, zero), horaOntem = Array.from({length:24}, zero);
+    const tot = { hoje:zero(), ontem:zero() };
+    const porAsin = {};
+    const t24 = Date.parse(ultima) - 23 * 3600 * 1000;   // últimas 24h: até a hora 'ultima'
+    horas.forEach(x => {
+      const dia = diaBRT(x.h), hr = horaBRT(x.h);
+      const p = porAsin[x.k + '|' + x.asin] || (porAsin[x.k + '|' + x.asin] = { k:x.k, asin:x.asin, hoje:zero(), ontem:zero(), u24:0, r24:0 });
+      if (Date.parse(x.h) >= t24) { p.u24 += x.u; p.r24 += x.r; }
+      const soma = (o) => { o.u += x.u; o.r += x.r; o.v += x.v; };
+      if (dia === hoje && hr <= ate) { soma(horaHoje[hr]); soma(tot.hoje); soma(p.hoje); }
+      else if (dia === ontem) {
+        soma(horaOntem[hr]);                                   // gráfico: ontem inteiro
+        if (hr <= ate) { soma(tot.ontem); soma(p.ontem); }     // comparação: só até a mesma hora
+      }
+    });
+
+    let estAgora = 0, comEst = 0, semEst = 0;
+    const estMap = {}, serie = {};
+    contas.forEach(k => {
+      const e = TR[k].estoque;
+      if (e && e.itens) Object.keys(e.itens).forEach(asin => {
+        const q = e.itens[asin] || 0;
+        estMap[k + '|' + asin] = q; estAgora += q;
+        if (q > 0) comEst++; else semEst++;
+      });
+      Object.keys(TR[k].estoque_total || {}).forEach(h => { serie[h] = (serie[h] || 0) + TR[k].estoque_total[h]; });
+    });
+    return { contas, ultima, atualizado, hoje, ate, ontem, horaHoje, horaOntem, tot, porAsin, estAgora, comEst, semEst, estMap, serie, falhas };
+  }
+
+  function trStatus(a){
+    const el = document.getElementById('trStatus');
+    const sem = state.contas.filter(k => !TR[k]).map(k => CONTA_NOME[k]);
+    if (!a) {
+      el.className = 'trstatus warn';
+      el.innerHTML = 'Ainda não há dados de tempo real para as contas selecionadas. Rode o <code>capturar_tempo_real.py</code> no Colab: a primeira publicação cria a pasta <code>tempo_real/</code> e esta página passa a mostrar as últimas 48h.';
+      return;
+    }
+    const atraso = (Date.now() - Date.parse(a.ultima)) / 3600000;
+    const cap = new Date(a.atualizado).toLocaleString('pt-BR', { timeZone:'America/Sao_Paulo', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+    el.className = 'trstatus' + (atraso > 8 ? ' warn' : '');
+    el.innerHTML = `Última hora capturada: <b>${DM(a.hoje)}, ${H2(a.ate)}h a ${H2((a.ate + 1) % 24)}h</b> (Brasília) · captura feita em ${cap}` +
+      (atraso > 8 ? ` · <b>dados com ${NUM(atraso)}h de atraso: rode o capturar_tempo_real.py de novo</b>` : '') +
+      (a.falhas.length ? ` · relatórios com falha na última captura (dado anterior mantido): ${esc(a.falhas.join('; '))}` : '') +
+      (sem.length ? ` · sem dados: ${esc(sem.join(', '))}` : '');
+  }
+
+  function trLimpar(){
+    ['trKpiVendas','trKpiTrafego','trKpiEstoque'].forEach(id => { document.getElementById(id).innerHTML = ''; });
+    ['tblTrVendas','tblTrTrafego','tblTrEstoque'].forEach(id => { document.querySelector('#' + id + ' tbody').innerHTML = ''; });
+    ['trVendas','trTrafego','trEstoque'].forEach(destroyChart);
+  }
+
+  const celulaProd = (k, asin) => {
+    const info = catalogInfo(k, asin);
+    return `<td><div class="prodcell">
+      ${info.imagem ? `<img class="thumb" src="${esc(info.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
+      <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${esc(asin)}</div></div>
+    </div></td><td><span class="tag muted">${esc(CONTA_NOME[k])}</span></td>`;
+  };
+
+  // gráfico hoje x ontem por hora do dia
+  function trGraficoDia(id, canvasId, a, campo, fmt){
+    destroyChart(id);
+    charts[id] = new Chart(document.getElementById(canvasId), {
+      type:'line',
+      data:{ labels: horasDia, datasets:[
+        { label:'Hoje (' + DM(a.hoje) + ')', data: a.horaHoje.map((x, i) => i <= a.ate ? x[campo] : null), borderColor:'#17868C', backgroundColor:'#DCEEEF', fill:true, tension:.25, pointRadius:2 },
+        { label:'Ontem (' + DM(a.ontem) + ')', data: a.horaOntem.map(x => x[campo]), borderColor:'#9C6510', backgroundColor:'transparent', borderDash:[5,3], tension:.25, pointRadius:0 }
+      ] },
+      options: { ...baseGridOpts(), interaction:{ mode:'index', intersect:false },
+        plugins:{ legend:{ labels:{ boxWidth:10, boxHeight:10, font:{size:11} } }, tooltip:{ callbacks:{ label: c => c.dataset.label + ': ' + fmt(c.raw) } } } }
+    });
+  }
+
+  function trVendas(a){
+    const h = a.tot.hoje, o = a.tot.ontem;
+    const dRev = varPct(h.r, o.r), dUn = varPct(h.u, o.u);
+    const ontemDia = a.horaOntem.reduce((s, x) => s + x.r, 0);
+    const r24 = Object.values(a.porAsin).reduce((s, p) => s + p.r24, 0);
+    document.getElementById('trKpiVendas').innerHTML =
+      kpiHTML('Receita hoje', MOEDA(h.r), `ontem no mesmo período: ${MOEDA(o.r)} (<span${deltaCls(dRev)}>${DELTA(dRev)}</span>)`) +
+      kpiHTML('Unidades hoje', NUM(h.u), `ontem no mesmo período: ${NUM(o.u)} (<span${deltaCls(dUn)}>${DELTA(dUn)}</span>)`) +
+      kpiHTML('Ticket médio hoje', h.u > 0 ? MOEDA2(h.r / h.u) : '—', 'receita ÷ unidades') +
+      kpiHTML('Últimas 24h', MOEDA(r24), 'receita pedida') +
+      kpiHTML('Ontem (dia inteiro)', MOEDA(ontemDia), DM(a.ontem));
+    document.getElementById('trDescVendas').textContent = 'Receita pedida por hora do dia, em Brasília. Hoje vai até a última hora capturada.';
+    trGraficoDia('trVendas', 'chTrVendas', a, 'r', MOEDA2);
+
+    const linhas = Object.values(a.porAsin).filter(p => p.hoje.r || p.hoje.u).sort((x, y) => y.hoje.r - x.hoje.r);
+    const tb = document.querySelector('#tblTrVendas tbody');
+    if (!linhas.length) renderEmptyRow(tb, 6, 'Sem vendas hoje até a última hora capturada.');
+    else tb.innerHTML = tbodyHTML('trVendas', linhas, 6, p => { const d = varPct(p.hoje.r, p.ontem.r); return `<tr>${celulaProd(p.k, p.asin)}
+      <td class="num">${MOEDA2(p.hoje.r)}</td><td class="num">${NUM(p.hoje.u)}</td><td class="num">${MOEDA2(p.ontem.r)}</td><td class="num"${deltaCls(d)}>${DELTA(d)}</td></tr>`; });
+  }
+
+  function trTrafego(a){
+    const h = a.tot.hoje, o = a.tot.ontem;
+    const dV = varPct(h.v, o.v);
+    const cH = h.v > 0 ? h.u / h.v : null, cO = o.v > 0 ? o.u / o.v : null;
+    let pico = -1, vPico = 0;
+    a.horaHoje.forEach((x, i) => { if (i <= a.ate && x.v > vPico) { vPico = x.v; pico = i; } });
+    document.getElementById('trKpiTrafego').innerHTML =
+      kpiHTML('Visitas hoje', NUM(h.v), `ontem no mesmo período: ${NUM(o.v)} (<span${deltaCls(dV)}>${DELTA(dV)}</span>)`) +
+      kpiHTML('Conversão hoje', PCT(cH), 'unidades ÷ visitas') +
+      kpiHTML('Conversão ontem', PCT(cO), 'mesmo período') +
+      kpiHTML('Hora de pico hoje', pico >= 0 ? H2(pico) + 'h' : '—', pico >= 0 ? NUM(vPico) + ' visitas' : '');
+    trGraficoDia('trTrafego', 'chTrTrafego', a, 'v', NUM);
+
+    const linhas = Object.values(a.porAsin).filter(p => p.hoje.v).sort((x, y) => y.hoje.v - x.hoje.v);
+    const tb = document.querySelector('#tblTrTrafego tbody');
+    if (!linhas.length) renderEmptyRow(tb, 7, 'Sem visitas hoje até a última hora capturada (ou o relatório de tráfego falhou na captura).');
+    else tb.innerHTML = tbodyHTML('trTrafego', linhas, 7, p => { const d = varPct(p.hoje.v, p.ontem.v); return `<tr>${celulaProd(p.k, p.asin)}
+      <td class="num">${NUM(p.hoje.v)}</td><td class="num">${NUM(p.hoje.u)}</td><td class="num">${PCT(p.hoje.v > 0 ? p.hoje.u / p.hoje.v : null)}</td>
+      <td class="num">${NUM(p.ontem.v)}</td><td class="num"${deltaCls(d)}>${DELTA(d)}</td></tr>`; });
+  }
+
+  function trEstoque(a){
+    // risco: vendeu nas últimas 24h; cobertura em horas = estoque ÷ (unidades 24h ÷ 24)
+    const linhas = Object.values(a.porAsin).filter(p => p.u24 > 0).map(p => {
+      const est = (p.k + '|' + p.asin) in a.estMap ? a.estMap[p.k + '|' + p.asin] : null;
+      const cob = est != null && p.u24 > 0 ? est / (p.u24 / 24) : null;
+      let sit = ['Sem informação', 'muted', 3];
+      if (est === 0) sit = ['Sem estoque', 'bad', 0];
+      else if (cob != null && cob < 12) sit = ['Menos de 12h', 'bad', 1];
+      else if (cob != null && cob < 48) sit = ['Menos de 2 dias', 'warn', 2];
+      else if (cob != null) sit = ['Ok', 'good', 4];
+      return { ...p, est, cob, sit };
+    }).sort((x, y) => x.sit[2] - y.sit[2] || (x.cob ?? 1e9) - (y.cob ?? 1e9) || y.r24 - x.r24);
+    const risco = linhas.filter(l => l.sit[2] <= 1).length;
+    const u24 = linhas.reduce((s, l) => s + l.u24, 0);
+    document.getElementById('trKpiEstoque').innerHTML =
+      kpiHTML('Estoque disponível agora', NUM(a.estAgora), 'unidades à venda no site') +
+      kpiHTML('Produtos com estoque', NUM(a.comEst), 'na última hora capturada') +
+      kpiHTML('Produtos sem estoque', NUM(a.semEst), 'na última hora capturada') +
+      kpiHTML('Vendendo e em risco', NUM(risco), 'sem estoque ou menos de 12h de cobertura', risco > 0) +
+      kpiHTML('Cobertura geral', u24 > 0 ? COB(a.estAgora / (u24 / 24)) : '—', 'estoque ÷ venda média por hora (24h)');
+
+    const chaves = Object.keys(a.serie).sort();
+    destroyChart('trEstoque');
+    charts.trEstoque = new Chart(document.getElementById('chTrEstoque'), {
+      type:'line',
+      data:{ labels: chaves.map(h => DM(diaBRT(h)) + ' ' + H2(horaBRT(h)) + 'h'),
+        datasets:[{ label:'Estoque disponível (un)', data: chaves.map(h => a.serie[h]), borderColor:'#2C7A57', backgroundColor:'#DDEDE4', fill:true, tension:.25, pointRadius:1 }] },
+      options: { ...baseGridOpts(), plugins:{ legend:{ display:false } },
+        scales:{ x:{ grid:{display:false}, ticks:{ font:{size:10}, maxTicksLimit:12 } }, y:{ grid:{color:'#EEF2F2'}, ticks:{ font:{size:10} } } } }
+    });
+
+    const tb = document.querySelector('#tblTrEstoque tbody');
+    if (!linhas.length) renderEmptyRow(tb, 6, 'Nenhum produto vendeu nas últimas 24h (ou o relatório de vendas falhou na captura).');
+    else tb.innerHTML = tbodyHTML('trEstoque', linhas, 6, l => `<tr>${celulaProd(l.k, l.asin)}
+      <td><span class="tag ${l.sit[1]}">${l.sit[0]}</span></td>
+      <td class="num">${l.est == null ? '—' : NUM(l.est)}</td><td class="num">${NUM(l.u24)}</td><td class="num">${COB(l.cob)}</td></tr>`);
+  }
+
+  async function renderTempoReal(){
+    const meu = ++trReq;
+    const el = document.getElementById('trStatus');
+    if (state.contas.some(k => !(k in TR) || Date.now() - (TR_T[k] || 0) > TR_TTL)) {
+      el.className = 'trstatus'; el.textContent = 'Carregando dados de tempo real…';
+      await carregarTR(state.contas);
+      if (meu !== trReq || state.pagina !== 'tempo-real') return;   // trocou de conta/página enquanto carregava
+    }
+    const a = trAgregar();
+    trStatus(a);
+    if (!a) { trLimpar(); return; }
+    ({ vendas:trVendas, trafego:trTrafego, estoque:trEstoque }[state.trTab] || trVendas)(a);
+  }
+
+  /* ------------------------------------------------------------------------
      7b. PÁGINAS E NAVEGAÇÃO
      Cada bloco do dashboard é uma página (menu lateral, rota por hash: #/vendas).
      Só a página aberta é desenhada, e filtros (conta, período) redesenham só ela.
      ------------------------------------------------------------------------ */
   const PAGINAS = {
-    inicio:    { titulo:'Início', sub:'Visão geral, diagnósticos e detalhe por conta', periodo:true,
-                 render: ag => { renderKPIs(ag.tot, ag.meses, agregarDiagnosticos()); renderDiagnosticos(); renderDetalhePorConta(ag.porConta, ag.meses); } },
+    inicio:    { titulo:'Início', sub:'Visão geral, mês em andamento por semana, diagnósticos e detalhe por conta', periodo:true,
+                 render: ag => { renderKPIs(ag.tot, ag.meses, agregarDiagnosticos()); renderSemanas(); renderDiagnosticos(); renderDetalhePorConta(ag.porConta, ag.meses); } },
     vendas:    { titulo:'Vendas e margem', sub:'Faturamento e margem no período', periodo:true,
                  render: ag => { renderFaturamento(ag.porConta, ag.meses); renderMargemMarkup(ag.porMes, ag.meses); } },
     estoque:   { titulo:'Estoque', sub:'Composição, conversão, cobertura e ruptura', periodo:true,
@@ -1402,8 +1735,10 @@ async function iniciarDashboard() {
                  render: () => renderPrevisao() },
     produtos:  { titulo:'Produtos', sub:'Catálogo, concentração de receita e curva ABC', periodo:true,
                  render: ag => { renderCatalogo(ag); renderProdutosConcentracao(ag.meses); renderABC(ag.meses); } },
-    retencao:  { titulo:'Retenção e tempo real', sub:'Recompra, cesta de compras, termos de busca e últimas 24h', periodo:false,
-                 render: () => { renderRetencao(); renderTempoReal(); } },
+    'tempo-real': { titulo:'Tempo real', sub:'Vendas, tráfego e estoque por hora, horário de Brasília', periodo:false,
+                 render: () => renderTempoReal() },
+    retencao:  { titulo:'Retenção', sub:'Recompra, cesta de compras e termos de busca', periodo:false,
+                 render: () => renderRetencao() },
     listings:  { titulo:'Saúde dos Listings', sub:'Status, erros e avisos reais da Amazon (última captura)', periodo:false,
                  render: () => renderListings() },
     qualidade: { titulo:'Qualidade de catálogo (CDQ)', sub:'Estimativa própria; fonte diferente de Saúde dos Listings', periodo:false,
@@ -1513,6 +1848,17 @@ async function iniciarDashboard() {
         l.avisos.map(i => `[${i.codigo || ''}] ${i.mensagem || ''}`).join(' | ')
       ]));
     if (listRows.length > 1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(listRows), 'Saúde dos Listings');
+
+    const sm = semanasDoMes();
+    if (sm.semanas.length) {
+      const linhasSem = [['Semana','Início','Fim','Receita pedida','Unidades pedidas','Receita enviada','Visitas','Conversão','Margem líq.','Estoque (un)','Ruptura']];
+      sm.semanas.forEach(s => {
+        const t = somaSemana(s.id);
+        linhasSem.push(['Sem ' + s.num, s.ini, s.fim, t.rev, t.un, t.env, t.views, t.views > 0 ? t.un / t.views : null,
+          t.npmDen > 0 ? t.npmNum / t.npmDen : null, t.est, t.oosDen > 0 ? t.oosNum / t.oosDen : null]);
+      });
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhasSem), 'Mês em andamento (semanas)');
+    }
 
     const todosPedidos = state.contas.flatMap(k => (CONTAS[k].pedidos || []).map(p => ({...p, k})))
       .sort((a, b) => (b.data || '').localeCompare(a.data || ''));

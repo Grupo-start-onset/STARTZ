@@ -189,3 +189,9 @@ table.tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .loading{background:var(--tealS);color:#0B4A4E;border-radius:10px;padding:14px 18px;font-size:.85rem;font-weight:600;margin-bottom:16px}
 .loading.err{background:var(--badS);color:var(--bad)}
 .loading[hidden]{display:none}
+
+/* tempo real: linha de status da captura */
+.trstatus{font-size:.78rem;color:var(--muted);margin:0 0 12px;line-height:1.5}
+.trstatus.warn{background:var(--warnS);color:var(--warn);border-radius:8px;padding:9px 12px}
+.trstatus code{background:#EEF2F2;border-radius:4px;padding:1px 5px;font-size:.74rem}
+.kpi .hint span{font-weight:700}

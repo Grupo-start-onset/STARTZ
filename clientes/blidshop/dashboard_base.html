@@ -34,8 +34,10 @@
         <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-9M15 6h6v6"/></svg>Previsão</a>
       <a href="#/produtos" data-pagina="produtos">
         <svg viewBox="0 0 24 24"><path d="M20 12l-8 8-9-9V3h8l9 9zM7.5 7.5h.01"/></svg>Produtos</a>
+      <a href="#/tempo-real" data-pagina="tempo-real">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Tempo real</a>
       <a href="#/retencao" data-pagina="retencao">
-        <svg viewBox="0 0 24 24"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 01-3 3H3"/></svg>Retenção e tempo real</a>
+        <svg viewBox="0 0 24 24"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 01-3 3H3"/></svg>Retenção</a>
       <a href="#/listings" data-pagina="listings">
         <svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3zM9 12l2 2 4-4"/></svg>Saúde dos Listings</a>
       <a href="#/qualidade" data-pagina="qualidade">
@@ -85,6 +87,41 @@
         <div class="section" id="sec-visao">
           <p class="sectitle">Visão geral do período</p>
           <div class="kpis" id="kpiRow"></div>
+        </div>
+
+        <div class="section" id="sec-semanas">
+          <p class="sectitle" id="semTitulo">Mês em andamento, por semana</p>
+          <p class="secdesc" id="semDesc"></p>
+          <div class="card empty" id="semVazio" hidden></div>
+          <div id="semConteudo">
+            <div class="grid2" style="grid-template-columns:minmax(0,1fr) minmax(0,2.2fr)">
+              <div class="card">
+                <h3>Receita pedida por semana</h3>
+                <p class="desc">Semanas fechadas (domingo a sábado), contas selecionadas</p>
+                <div class="chartbox"><canvas id="chSemanas"></canvas></div>
+              </div>
+              <div class="card">
+                <h3>Semana a semana</h3>
+                <p class="desc" id="semTabDesc"></p>
+                <div class="tbl-wrap" style="max-height:340px">
+                  <table class="tbl" id="tblSemanas">
+                    <thead><tr><th>Semana</th><th class="num">Receita pedida</th><th class="num">vs. semana anterior</th><th class="num">Unidades</th><th class="num">Visitas</th><th class="num">Conversão</th><th class="num">Margem líq.</th><th class="num">Estoque (un)</th><th class="num">Ruptura</th></tr></thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="card" style="margin-top:16px">
+              <h3>Produtos no mês em andamento</h3>
+              <p class="desc">Soma das semanas fechadas mostradas acima. Só ASINs com venda ou visita. Estoque = posição da última semana</p>
+              <div class="tbl-wrap" style="max-height:420px">
+                <table class="tbl" id="tblSemTop">
+                  <thead><tr><th>Produto</th><th>Conta</th><th class="num">Receita pedida</th><th class="num">Unidades</th><th class="num">Visitas</th><th class="num">Conversão</th><th class="num">Estoque (un)</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="section" id="sec-diagnosticos">
@@ -326,7 +363,70 @@
 
       </div>
 
-      <!-- ===================== PÁGINA: RETENÇÃO E TEMPO REAL ===================== -->
+      <!-- ===================== PÁGINA: TEMPO REAL ===================== -->
+      <div class="page" id="page-tempo-real" hidden>
+
+        <div class="section" id="sec-tempo-real">
+          <p class="sectitle">Tempo real, hora a hora <span class="beta">sujeito a ajuste</span></p>
+          <p class="secdesc">Relatórios em tempo real da Amazon (Vendor Retail Analytics), uma linha por ASIN por hora, horário de Brasília. Cancelamentos podem ser descontados horas ou dias depois, e as métricas por hora não batem com os relatórios diários. Não usa o filtro de período.</p>
+          <div class="trstatus" id="trStatus"></div>
+          <div class="card">
+            <div class="tabs" id="trTabs">
+              <button class="tabbtn on" data-tab="vendas" data-panel="trPanVendas">Vendas</button>
+              <button class="tabbtn" data-tab="trafego" data-panel="trPanTrafego">Tráfego</button>
+              <button class="tabbtn" data-tab="estoque" data-panel="trPanEstoque">Estoque</button>
+            </div>
+
+            <div class="tabpanel on" id="trPanVendas">
+              <div class="kpis" id="trKpiVendas" style="margin-bottom:16px"></div>
+              <h3>Receita por hora: hoje vs. ontem</h3>
+              <p class="desc" id="trDescVendas"></p>
+              <div class="chartbox"><canvas id="chTrVendas"></canvas></div>
+              <h3 style="margin-top:20px">Top produtos de hoje</h3>
+              <p class="desc">Receita e unidades de hoje até a última hora capturada, comparadas ao mesmo período de ontem</p>
+              <div class="tbl-wrap" style="max-height:420px">
+                <table class="tbl" id="tblTrVendas">
+                  <thead><tr><th>Produto</th><th>Conta</th><th class="num">Receita hoje</th><th class="num">Unidades hoje</th><th class="num">Receita ontem (mesmo período)</th><th class="num">Variação</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="tabpanel" id="trPanTrafego">
+              <div class="kpis" id="trKpiTrafego" style="margin-bottom:16px"></div>
+              <h3>Visitas por hora: hoje vs. ontem</h3>
+              <p class="desc">Visitas à página do produto (glance views)</p>
+              <div class="chartbox"><canvas id="chTrTrafego"></canvas></div>
+              <h3 style="margin-top:20px">Produtos mais visitados hoje</h3>
+              <p class="desc">Conversão = unidades pedidas ÷ visitas, no mesmo período</p>
+              <div class="tbl-wrap" style="max-height:420px">
+                <table class="tbl" id="tblTrTrafego">
+                  <thead><tr><th>Produto</th><th>Conta</th><th class="num">Visitas hoje</th><th class="num">Unidades hoje</th><th class="num">Conversão</th><th class="num">Visitas ontem (mesmo período)</th><th class="num">Variação</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="tabpanel" id="trPanEstoque">
+              <div class="kpis" id="trKpiEstoque" style="margin-bottom:16px"></div>
+              <h3>Estoque disponível por hora</h3>
+              <p class="desc">Soma das unidades disponíveis para venda no site, contas selecionadas (últimas 72h)</p>
+              <div class="chartbox"><canvas id="chTrEstoque"></canvas></div>
+              <h3 style="margin-top:20px">Risco de ruptura</h3>
+              <p class="desc">Produtos que venderam nas últimas 24h, do mais crítico ao menos. Cobertura = estoque disponível ÷ venda média por hora das últimas 24h</p>
+              <div class="tbl-wrap" style="max-height:420px">
+                <table class="tbl" id="tblTrEstoque">
+                  <thead><tr><th>Produto</th><th>Conta</th><th>Situação</th><th class="num">Estoque agora</th><th class="num">Vendas 24h (un)</th><th class="num">Cobertura</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ===================== PÁGINA: RETENÇÃO ===================== -->
       <div class="page" id="page-retencao" hidden>
 
         <div class="section" id="sec-retencao">
@@ -334,9 +434,9 @@
           <p class="secdesc">Brand Analytics — depende de captura própria por conta; onde não houver dado, a aba mostra vazio</p>
           <div class="card">
             <div class="tabs" id="retTabs">
-              <button class="tabbtn on" data-tab="recompra">Recompra &amp; não atendidos</button>
-              <button class="tabbtn" data-tab="cesta">Cesta de compras</button>
-              <button class="tabbtn" data-tab="termos">Termos de busca</button>
+              <button class="tabbtn on" data-panel="tabRecompra">Recompra &amp; não atendidos</button>
+              <button class="tabbtn" data-panel="tabCesta">Cesta de compras</button>
+              <button class="tabbtn" data-panel="tabTermos">Termos de busca</button>
             </div>
             <div class="tabpanel on" id="tabRecompra">
               <div class="tbl-wrap" style="max-height:340px">
@@ -353,15 +453,6 @@
                 <table class="tbl" id="tblTermos"><thead><tr><th>Termo de busca</th><th>Conta</th></tr></thead><tbody></tbody></table>
               </div>
             </div>
-          </div>
-        </div>
-
-        <div class="section" id="sec-tempo-real">
-          <p class="sectitle">Tempo real (últimas 24h) <span class="beta">em construção</span></p>
-          <p class="secdesc">Vendas, tráfego e estoque hora a hora — aguardando o formato bruto ser incorporado ao dados_vendor.json</p>
-          <div class="card" id="tempoRealCard">
-            <div class="empty" id="tempoRealEmpty"></div>
-            <div class="chartbox" id="tempoRealChartBox" style="display:none"><canvas id="chTempoReal"></canvas></div>
           </div>
         </div>
 
