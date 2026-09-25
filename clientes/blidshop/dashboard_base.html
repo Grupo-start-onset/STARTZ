@@ -10,6 +10,13 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="styles.css">
+<style>
+  /* Saúde dos Listings (Listings Items API): estilos próprios do bloco, prefixo lst- */
+  .lst-issues{display:flex;flex-direction:column;gap:5px;min-width:260px;max-width:560px;white-space:normal}
+  .lst-issue{display:flex;gap:6px;align-items:flex-start;font-size:12px;line-height:1.35}
+  .lst-issue .tag{flex:0 0 auto}
+  .lst-attrs{color:#5F7378}
+</style>
 </head>
 <body>
 
@@ -57,6 +64,7 @@
       <a href="#sec-retencao">Retenção</a>
       <a href="#sec-tempo-real">Tempo real</a>
       <a href="#sec-detalhe">Detalhe por conta</a>
+      <a href="#sec-listings">Saúde dos Listings</a>
       <a href="#sec-qualidade">Qualidade de Catálogo</a>
     </nav>
   </div>
@@ -317,9 +325,68 @@
     </div>
   </div>
 
-  <div class="section" id="sec-qualidade">
-    <p class="sectitle"><span class="n">15</span>Qualidade de Catálogo <span class="beta">estimativa própria</span></p>
+  <div class="section" id="sec-listings">
+    <p class="sectitle"><span class="n">15</span>Saúde dos Listings <span class="beta">dado oficial da Amazon</span></p>
     <p class="secdesc">
+      Status e pendências reais de cada ASIN, lidos direto da Listings Items API: erros, avisos e supressão.
+      Usa a última captura de cada conta (não muda com o filtro de período) e é uma fonte
+      <b>independente</b> do índice CDQ da seção 16, que é uma estimativa própria: os números dos dois blocos
+      não se comparam nem se somam. <b>Suprimido</b> = fora da busca da Amazon (perda de venda direta);
+      <b>aviso</b> afeta a qualidade do anúncio, mas não bloqueia a venda.
+    </p>
+
+    <div class="kpis" id="listKpiRow" style="margin-bottom:16px"></div>
+
+    <div class="card critical">
+      <h3>ASINs suprimidos</h3>
+      <p class="desc">Listagens que a Amazon escondeu dos compradores. A coluna de erros mostra todos os erros do ASIN
+        (a captura registra que houve supressão, mas não qual erro específico a causou). É a lista mais crítica da seção.</p>
+      <div class="catalogo-toolbar">
+        <input type="search" id="listBusca" placeholder="Buscar por nome, ASIN, SKU ou mensagem de erro…">
+        <select id="listOrdenar">
+          <option value="erros_desc">Ordenar: mais erros primeiro</option>
+          <option value="nome_asc">Ordenar: nome (A–Z)</option>
+          <option value="conta_asc">Ordenar: conta</option>
+          <option value="sku_asc">Ordenar: SKU</option>
+        </select>
+        <span class="catalogo-count" id="listCount"></span>
+      </div>
+      <div class="tbl-wrap" style="max-height:520px">
+        <table class="tbl" id="tblListSuprimidos">
+          <thead><tr><th>Produto</th><th>Conta</th><th>SKU</th><th>Erros</th><th class="num">Avisos</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h3>ASINs com avisos (não suprimidos)</h3>
+      <p class="desc">Listagens no ar, mas com pendências de qualidade apontadas pela Amazon (atributos faltando, por exemplo).
+        Não bloqueiam a venda. Erros que não suprimem a listagem aparecem na coluna ao lado.</p>
+      <div class="catalogo-toolbar">
+        <input type="search" id="avisoBusca" placeholder="Buscar por nome, ASIN, SKU ou mensagem de aviso…">
+        <select id="avisoOrdenar">
+          <option value="avisos_desc">Ordenar: mais avisos primeiro</option>
+          <option value="nome_asc">Ordenar: nome (A–Z)</option>
+          <option value="conta_asc">Ordenar: conta</option>
+          <option value="sku_asc">Ordenar: SKU</option>
+        </select>
+        <span class="catalogo-count" id="avisoCount"></span>
+      </div>
+      <div class="tbl-wrap" style="max-height:520px">
+        <table class="tbl" id="tblListAvisos">
+          <thead><tr><th>Produto</th><th>Conta</th><th>SKU</th><th>Avisos</th><th class="num">Erros (não suprimem)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="sec-qualidade">
+    <p class="sectitle"><span class="n">16</span>Qualidade de Catálogo <span class="beta">estimativa própria</span></p>
+    <p class="secdesc">
+      <b>Fonte diferente da seção 15:</b> este índice é calculado por nós, não vem do status da Amazon, e ainda é incompleto
+      (depende de capturas extras que não rodaram para todas as contas).
       Índice de Qualidade de Catálogo — estimativa própria, calculada com as mesmas regras e pesos do guia oficial
       da Amazon para o CDQ (Título 25% · Atributos Estruturados 30% · Variações 20% · Imagens 15% · Bullet Points 5% ·
       Conteúdo A+ 5%). <b>Não é o número oficial</b> exibido no Vendor Central: parte da nota real da Amazon depende

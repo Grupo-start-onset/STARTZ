@@ -7,6 +7,8 @@
      4. Agregação por período (funções puras: state -> dados agregados)
      5. Diagnósticos (analise.diagnosticos, agregados entre contas)
      6. Catálogo de produtos (busca/ordenação)
+     6b. Qualidade de Catálogo (estimativa própria de CDQ, bloco `qualidade`)
+     6c. Saúde dos Listings (status/erros/avisos reais da Amazon, bloco `qualidadeListings`)
      7. Renderização — uma função por seção do dashboard
      8. Exportação (Excel)
      9. Inicialização
@@ -85,6 +87,10 @@ async function iniciarDashboard() {
     qualBusca: '',
     qualFiltroGrau: '',
     qualOrdenar: 'score_asc',
+    listBusca: '',
+    listOrdenar: 'erros_desc',
+    avisoBusca: '',
+    avisoOrdenar: 'avisos_desc',
     pedBusca: '',
     pedStatus: '',
     pedMes: '',
@@ -133,6 +139,16 @@ async function iniciarDashboard() {
   qualBusca.oninput = () => { state.qualBusca = qualBusca.value.trim().toLowerCase(); renderQualidade(); };
   qualFiltroGrau.onchange = () => { state.qualFiltroGrau = qualFiltroGrau.value; renderQualidade(); };
   qualOrdenar.onchange = () => { state.qualOrdenar = qualOrdenar.value; renderQualidade(); };
+
+  // filtros da seção Saúde dos Listings (qualidadeListings)
+  const listBusca = document.getElementById('listBusca');
+  const listOrdenar = document.getElementById('listOrdenar');
+  const avisoBusca = document.getElementById('avisoBusca');
+  const avisoOrdenar = document.getElementById('avisoOrdenar');
+  listBusca.oninput = () => { state.listBusca = listBusca.value.trim().toLowerCase(); renderListingsSuprimidos(montarListings()); };
+  listOrdenar.onchange = () => { state.listOrdenar = listOrdenar.value; renderListingsSuprimidos(montarListings()); };
+  avisoBusca.oninput = () => { state.avisoBusca = avisoBusca.value.trim().toLowerCase(); renderListingsAvisos(montarListings()); };
+  avisoOrdenar.onchange = () => { state.avisoOrdenar = avisoOrdenar.value; renderListingsAvisos(montarListings()); };
 
   // filtros da seção de pedidos de compra
   const PED_MESES = Array.from(new Set(
@@ -566,6 +582,160 @@ async function iniciarDashboard() {
       <td>${compBadge(l.comp.aplus)}</td>
       <td>${l.variacaoAplicavel ? compBadge(l.comp.variacoes) : '<span class="tag muted">N/A</span>'}</td>
     </tr>`).join('');
+  }
+
+  /* ------------------------------------------------------------------------
+     6c. SAÚDE DOS LISTINGS (bloco `qualidadeListings`: status/erros/avisos reais da Amazon)
+     Fonte independente do bloco `qualidade` (CDQ estimado) da seção 6b: não misturar os dois.
+     Último snapshot de cada conta, não depende do filtro de período.
+     ------------------------------------------------------------------------ */
+
+  // uma linha por ASIN, nas contas selecionadas
+  function montarListings(){
+    const linhas = [];
+    state.contas.forEach(k => {
+      const ql = CONTAS[k].qualidadeListings || {};
+      const asins = ql.asins || {};
+      const suprSet = new Set(ql.listaSuprimidos || []);
+      const chaves = new Set([...Object.keys(asins), ...suprSet]);
+      chaves.forEach(asin => {
+        const a = asins[asin] || {};
+        const erros = a.erros || [];
+        const avisos = a.avisos || [];
+        const info = catalogInfo(k, asin);
+        linhas.push({
+          asin, contaKey:k, nome:info.nome, imagem:info.imagem,
+          sku: a.sku || '',
+          suprimido: !!a.suprimido || suprSet.has(asin),
+          erros, avisos,
+          qtdErros: a.qtdErros != null ? a.qtdErros : erros.length,
+          qtdAvisos: a.qtdAvisos != null ? a.qtdAvisos : avisos.length
+        });
+      });
+    });
+    return linhas;
+  }
+
+  // texto pesquisável de uma linha (nome, ASIN, SKU e mensagens)
+  function alvoBuscaListing(l, campo){
+    const msgs = (campo === 'avisos' ? l.avisos : l.erros).map(i => (i.codigo || '') + ' ' + (i.mensagem || ''));
+    return [l.nome, l.asin, l.sku, ...msgs].join(' ').toLowerCase();
+  }
+
+  function ordenarListings(linhas, ord, campoQtd){
+    return [...linhas].sort((a,b) => {
+      if (ord === 'erros_desc') return (b.qtdErros - a.qtdErros) || a.nome.localeCompare(b.nome, 'pt-BR');
+      if (ord === 'avisos_desc') return (b.qtdAvisos - a.qtdAvisos) || a.nome.localeCompare(b.nome, 'pt-BR');
+      if (ord === 'nome_asc') return a.nome.localeCompare(b.nome, 'pt-BR');
+      if (ord === 'conta_asc') return CONTA_NOME[a.contaKey].localeCompare(CONTA_NOME[b.contaKey], 'pt-BR') || a.nome.localeCompare(b.nome, 'pt-BR');
+      if (ord === 'sku_asc') return String(a.sku).localeCompare(String(b.sku), 'pt-BR', {numeric:true});
+      return 0;
+    });
+  }
+
+  // lista de issues (erros ou avisos) de um ASIN, com código e mensagem
+  function issuesHTML(lista, tipo){
+    if (!lista.length) return '<span class="empty" style="padding:0">—</span>';
+    const cls = tipo === 'erro' ? 'bad' : 'warn';
+    return '<div class="lst-issues">' + lista.map(i => {
+      const attrs = (i.atributos && i.atributos.length) ? ` <span class="lst-attrs">(atributos: ${esc(i.atributos.join(', '))})</span>` : '';
+      return `<div class="lst-issue"><span class="tag ${cls}">${esc(i.codigo || (tipo === 'erro' ? 'erro' : 'aviso'))}</span><span>${esc(i.mensagem || 'Sem mensagem')}${attrs}</span></div>`;
+    }).join('') + '</div>';
+  }
+
+  function celulaProdutoListing(l){
+    return `<td><div class="prodcell">
+      ${l.imagem ? `<img class="thumb" src="${esc(l.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
+      <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></div>
+    </div></td>`;
+  }
+
+  function renderListingsKPIs(){
+    const wrap = document.getElementById('listKpiRow');
+    // resumo por conta: usa o `resumo` do bloco; se faltar, recalcula a partir dos ASINs
+    const resumos = [];
+    state.contas.forEach(k => {
+      const ql = CONTAS[k].qualidadeListings || {};
+      let r = ql.resumo;
+      if (!r || !r.totalAsins) {
+        const asins = Object.values(ql.asins || {});
+        if (!asins.length) return;
+        const saud = asins.filter(a => !(a.qtdErros > 0) && !(a.qtdAvisos > 0)).length;
+        r = { totalAsins: asins.length, suprimidos: asins.filter(a => a.suprimido).length,
+              comErro: asins.filter(a => a.qtdErros > 0).length, comAviso: asins.filter(a => a.qtdAvisos > 0).length,
+              saudaveis: saud, pctSaudaveis: 100 * saud / asins.length };
+      }
+      resumos.push({ k, r });
+    });
+    if (!resumos.length) { wrap.innerHTML = '<div class="empty">Sem dados de saúde de listings para as contas selecionadas (rode capturar_qualidade_listings.py e o transformar_vendor.py).</div>'; return; }
+
+    const cardHTML = (titulo, r) => `<div class="kpi${r.suprimidos > 0 ? ' alert' : ''}">
+      <div class="lab">${esc(titulo)}</div>
+      <div class="val">${PCTRAW(r.pctSaudaveis)}</div>
+      <div class="hint">saudáveis (sem erro nem aviso): ${NUM(r.saudaveis)} de ${NUM(r.totalAsins)} ASINs</div>
+      <div class="hint"><b>${NUM(r.suprimidos)}</b> suprimidos · ${NUM(r.comErro)} com erro · ${NUM(r.comAviso)} com aviso</div>
+    </div>`;
+
+    let combinado = '';
+    if (resumos.length > 1) {
+      const t = resumos.reduce((s, x) => ({
+        totalAsins: s.totalAsins + (x.r.totalAsins||0), suprimidos: s.suprimidos + (x.r.suprimidos||0),
+        comErro: s.comErro + (x.r.comErro||0), comAviso: s.comAviso + (x.r.comAviso||0), saudaveis: s.saudaveis + (x.r.saudaveis||0)
+      }), {totalAsins:0, suprimidos:0, comErro:0, comAviso:0, saudaveis:0});
+      t.pctSaudaveis = t.totalAsins > 0 ? 100 * t.saudaveis / t.totalAsins : null;
+      combinado = cardHTML('Saúde do catálogo · combinada', t);
+    }
+    wrap.innerHTML = combinado + resumos.map(x => cardHTML('Saúde do catálogo · ' + CONTA_NOME[x.k], x.r)).join('');
+  }
+
+  function renderListingsSuprimidos(todas){
+    const temDado = todas.length > 0;
+    let linhas = todas.filter(l => l.suprimido);
+    const totalSupr = linhas.length;
+    if (state.listBusca) linhas = linhas.filter(l => alvoBuscaListing(l, 'erros').includes(state.listBusca));
+    linhas = ordenarListings(linhas, state.listOrdenar);
+
+    document.getElementById('listCount').textContent = linhas.length + (linhas.length !== totalSupr ? ' de ' + totalSupr : '') + ' ASIN(s) suprimido(s)';
+    const tbody = document.querySelector('#tblListSuprimidos tbody');
+    if (!temDado) { renderEmptyRow(tbody, 5, 'Sem dados de saúde de listings para as contas selecionadas.'); return; }
+    if (!linhas.length) { renderEmptyRow(tbody, 5, totalSupr ? 'Nenhum ASIN encontrado com essa busca.' : 'Nenhum ASIN suprimido nas contas selecionadas.'); return; }
+
+    tbody.innerHTML = linhas.map(l => `<tr>
+      ${celulaProdutoListing(l)}
+      <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
+      <td>${esc(l.sku) || '—'}</td>
+      <td>${issuesHTML(l.erros, 'erro')}</td>
+      <td class="num">${NUM(l.qtdAvisos)}</td>
+    </tr>`).join('');
+  }
+
+  function renderListingsAvisos(todas){
+    const temDado = todas.length > 0;
+    // só avisos, sem supressão (suprimidos já aparecem na lista acima)
+    let linhas = todas.filter(l => !l.suprimido && l.qtdAvisos > 0);
+    const totalAv = linhas.length;
+    if (state.avisoBusca) linhas = linhas.filter(l => alvoBuscaListing(l, 'avisos').includes(state.avisoBusca));
+    linhas = ordenarListings(linhas, state.avisoOrdenar);
+
+    document.getElementById('avisoCount').textContent = linhas.length + (linhas.length !== totalAv ? ' de ' + totalAv : '') + ' ASIN(s) com aviso';
+    const tbody = document.querySelector('#tblListAvisos tbody');
+    if (!temDado) { renderEmptyRow(tbody, 5, 'Sem dados de saúde de listings para as contas selecionadas.'); return; }
+    if (!linhas.length) { renderEmptyRow(tbody, 5, totalAv ? 'Nenhum ASIN encontrado com essa busca.' : 'Nenhum ASIN com aviso (fora os suprimidos) nas contas selecionadas.'); return; }
+
+    tbody.innerHTML = linhas.map(l => `<tr>
+      ${celulaProdutoListing(l)}
+      <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
+      <td>${esc(l.sku) || '—'}</td>
+      <td>${issuesHTML(l.avisos, 'aviso')}</td>
+      <td>${l.qtdErros > 0 ? issuesHTML(l.erros, 'erro') : '<span class="empty" style="padding:0">—</span>'}</td>
+    </tr>`).join('');
+  }
+
+  function renderListings(){
+    const todas = montarListings();
+    renderListingsKPIs();
+    renderListingsSuprimidos(todas);
+    renderListingsAvisos(todas);
   }
 
   /* ------------------------------------------------------------------------
@@ -1123,6 +1293,7 @@ async function iniciarDashboard() {
     renderRetencao();
     renderTempoReal();
     renderDetalhePorConta(porConta, meses);
+    renderListings();
     renderQualidade();
   }
 
@@ -1190,6 +1361,18 @@ async function iniciarDashboard() {
     const diagRows = [['Tipo','Título','Impacto (R$)','Qtd. itens','Contas']];
     agregarDiagnosticos().forEach(g => diagRows.push([g.tipo, g.titulo, g.impacto, g.qtd, [...g.contasEnvolvidas].map(k=>CONTA_NOME[k]).join(', ')]));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(diagRows), 'Diagnósticos');
+
+    // Saúde dos Listings (fonte: qualidadeListings, dado da Amazon). Uma linha por ASIN com pendência.
+    const listRows = [['Conta','ASIN','SKU','Produto','Suprimido','Qtd. erros','Qtd. avisos','Erros','Avisos']];
+    montarListings()
+      .filter(l => l.suprimido || l.qtdErros > 0 || l.qtdAvisos > 0)
+      .sort((a,b) => (Number(b.suprimido) - Number(a.suprimido)) || (b.qtdErros - a.qtdErros))
+      .forEach(l => listRows.push([
+        CONTA_NOME[l.contaKey], l.asin, l.sku, l.nome, l.suprimido ? 'Sim' : 'Não', l.qtdErros, l.qtdAvisos,
+        l.erros.map(i => `[${i.codigo || ''}] ${i.mensagem || ''}`).join(' | '),
+        l.avisos.map(i => `[${i.codigo || ''}] ${i.mensagem || ''}`).join(' | ')
+      ]));
+    if (listRows.length > 1) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(listRows), 'Saúde dos Listings');
 
     const todosPedidos = state.contas.flatMap(k => (CONTAS[k].pedidos || []).map(p => ({...p, k})))
       .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
