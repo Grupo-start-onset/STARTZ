@@ -214,3 +214,29 @@ h1{font-family:'DM Serif Display',Georgia,serif;font-weight:400;font-size:1.6rem
 .pagehead{display:flex;align-items:center;gap:12px}
 .pagehead .topmark{height:38px;width:auto;flex:none}
 .kpi .val{font-weight:700}
+
+/* ---------- logo(s) do cliente ----------
+   Cartão no menu lateral (abaixo da marca START). No celular e na impressão o menu some/encolhe,
+   então o logo vai para o cabeçalho, ao lado do título. */
+.clientcard{margin:0 0 18px}
+.cc-label{font-size:.62rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#8F877B;padding:0 8px 8px}
+.cc-box{background:var(--page);border-radius:12px;padding:16px 16px;display:flex;flex-direction:column}
+.cl-logo{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px}
+.cl-logo + .cl-logo{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.cl-logo img{width:auto;height:auto;max-width:100%;max-height:var(--h,48px);object-fit:contain}
+.cl-logo figcaption{font-size:.74rem;font-weight:700;letter-spacing:.02em;color:#2B3A6E;white-space:nowrap}
+.clientcard[hidden],.clientmini[hidden]{display:none!important}
+.clientmini{display:none;align-items:center;gap:16px;margin-left:8px;padding-left:16px;border-left:1px solid var(--line)}
+.clientmini .cl-logo{flex-direction:row;gap:8px}
+.clientmini .cl-logo + .cl-logo{margin:0;padding:0;border:none}
+.clientmini .cl-logo img{max-height:calc(var(--h,48px) * .62)}
+@media (max-width:900px){
+  .clientcard{display:none!important}
+  .pagehead{flex-wrap:wrap}
+  .pagehead .topmark + div{flex:1 1 0;min-width:0}   /* título continua ao lado do "S"; só o logo do cliente desce */
+  .clientmini:not([hidden]){display:flex;flex-basis:100%;flex-wrap:wrap;gap:10px 22px;margin:6px 0 0;padding:12px 0 0;border-left:none;border-top:1px solid var(--line)}
+  .clientmini .cl-logo img{max-height:calc(var(--h,48px) * .8)}
+}
+@media print{
+  .clientmini:not([hidden]){display:flex}
+}

@@ -208,6 +208,7 @@ async function iniciarDashboard() {
     contaSelecionada = escolha;
     state.contas = alvo;
     try { localStorage.setItem(CHAVE_CONTA, escolha); } catch (e) {}
+    renderLogos();
     resetLim();
     renderPagina();
   };
@@ -302,6 +303,39 @@ async function iniciarDashboard() {
     state.lim[k] = limite(k) + LIM_PASSO;
     if (REDESENHAR_TABELA[k]) REDESENHAR_TABELA[k]();
   });
+
+  /* ------------------------------------------------------------------------
+     3b. LOGOS DOS CLIENTES
+     Quando o painel mostra uma conta só (pasta clientes/<conta>/, ou uma conta escolhida no
+     painel geral), os logos da(s) marca(s) dela aparecem num cartão no menu lateral e, no
+     celular e na impressão (PDF), ao lado do título. Com "Todas as contas", ficam ocultos.
+     Arquivos em assets/logos/. Para incluir uma conta ou trocar um logo: edite LOGOS.
+       a = arquivo · alt = nome da marca · h = altura máxima em px no cartão
+       legenda = texto sob o logo (só quando o arquivo traz apenas o símbolo da marca)
+     ------------------------------------------------------------------------ */
+  const ASSET_BASE = location.pathname.includes('/clientes/') ? '../../assets/' : 'assets/';
+  const LOGOS = {
+    alfa_jf:   [{ a:'treeliss.png',  alt:'Treeliss Profissional', h:40 }],
+    blidshop:  [{ a:'blidshop.png',  alt:'Blid Shop',             h:68, legenda:'Blid Shop' }],
+    conta3:    [{ a:'orba.png',      alt:'Grupo Orba',            h:52 }, { a:'petclean.png', alt:'Pet Clean', h:50 }],
+    ozitp:     [{ a:'kastking.png',  alt:'KastKing',              h:56 }, { a:'marnegro.png', alt:'Mar Negro', h:32 }],
+    jolitex:   [{ a:'jolitex.png',   alt:'Jolitex Ternille',      h:46 }],
+    balboa:    [{ a:'ligga.png',     alt:'Ligga Sports',          h:22 }],
+    riomaster: [{ a:'riomaster.png', alt:'Rio Master',            h:30 }]
+  };
+  // na cópia offline, os logos vêm embutidos em window.__ASSETS (ver baixarOffline)
+  const logoSrc = a => (window.__ASSETS && window.__ASSETS['logos/' + a]) || (ASSET_BASE + 'logos/' + a);
+
+  function renderLogos(){
+    const k = state.contas.length === 1 ? state.contas[0] : null;
+    const lista = (k && LOGOS[k]) || [];
+    const html = lista.map(l => `<figure class="cl-logo" style="--h:${l.h}px">
+      <img src="${esc(logoSrc(l.a))}" alt="${esc(l.alt)}" title="${esc(l.alt)}" decoding="async">
+      ${l.legenda ? `<figcaption>${esc(l.legenda)}</figcaption>` : ''}</figure>`).join('');
+    const card = document.getElementById('clientCard'), mini = document.getElementById('clientMini');
+    if (card) { card.hidden = !lista.length; document.getElementById('clientLogos').innerHTML = html; }
+    if (mini) { mini.hidden = !lista.length; mini.innerHTML = html; }
+  }
 
   /* ------------------------------------------------------------------------
      4. AGREGAÇÃO POR PERÍODO
@@ -2492,11 +2526,18 @@ async function iniciarDashboard() {
       });
       if (appJs == null) throw new Error('app.js não encontrado na página');
 
+      // logos dos clientes: entram pelo JS (renderLogos), então não passam pelo passo das <img> acima
+      const assets = {};
+      for (const a of new Set(CONTA_KEYS.flatMap(k => (LOGOS[k] || []).map(l => l.a)))) {
+        assets['logos/' + a] = await dataURI(abs(ASSET_BASE + 'logos/' + a));
+      }
+
       // ---- 6. fetch embutido + dados, antes do app.js
       const agora = new Date();
       const geradaEm = agora.toLocaleString('pt-BR', { timeZone:'America/Sao_Paulo', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
       const shim = '<script>\n' +
         'window.__OFFLINE = { geradaEm: ' + JSON.stringify(geradaEm) + ' };\n' +
+        'window.__ASSETS = ' + JSON.stringify(assets) + ';\n' +
         '(function(){\n' +
         '  var chave = function(u){\n' +
         '    u = String(u).split("?")[0].split("#")[0];\n' +
@@ -2549,6 +2590,7 @@ async function iniciarDashboard() {
   }
   if (!(await carregarContas(state.contas, ++reqId))) return; // mensagem de erro já está na tela
   document.getElementById('loading').hidden = true;
+  renderLogos();
   irPara(paginaDoHash());
 }
 
