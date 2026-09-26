@@ -198,3 +198,9 @@ table.tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 
 .tbl .asincode a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}
 .tbl .asincode a:hover{color:var(--teal,#17868C);border-bottom-color:currentColor}
+
+/* ícone de informação (i) nas métricas */
+.info{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;margin-left:5px;padding:0;border-radius:50%;border:1px solid var(--muted);background:transparent;color:var(--muted);font:italic 700 9px/1 Georgia,serif;text-transform:none;letter-spacing:0;cursor:help;vertical-align:middle;opacity:.75;flex:none}
+.info:hover,.info:focus-visible{opacity:1;color:#17868C;border-color:#17868C;outline:none}
+#infoTip{position:fixed;z-index:1000;max-width:280px;padding:9px 11px;border-radius:8px;background:#1F2D30;color:#fff;font-size:.74rem;line-height:1.45;font-weight:500;text-transform:none;letter-spacing:0;box-shadow:0 6px 20px rgba(0,0,0,.22);pointer-events:none}
+@media print{.info,#infoTip{display:none!important}}

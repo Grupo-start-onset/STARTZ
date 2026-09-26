@@ -888,8 +888,8 @@ async function iniciarDashboard() {
     const impactoTotal = diagGrupos.reduce((s,g) => s + (g.tipo === 'oportunidade' ? 0 : g.impacto), 0);
 
     document.getElementById('kpiRow').innerHTML = `
-      <div class="kpi"><div class="lab">Faturamento</div><div class="val">${MOEDA(tot.shippedRevenue)}</div><div class="hint">${meses.length} mês(es) · ${state.contas.length} conta(s)</div></div>
-      <div class="kpi"><div class="lab">Unidades pedidas</div><div class="val">${NUM(tot.shippedUnits)}</div><div class="hint">receita pedida (ordered)</div></div>
+      <div class="kpi"><div class="lab">Faturamento</div><div class="val">${MOEDA(tot.shippedRevenue)}</div><div class="hint">receita enviada · ${meses.length} mês(es) · ${state.contas.length} conta(s)</div></div>
+      <div class="kpi"><div class="lab">Unidades enviadas</div><div class="val">${NUM(tot.shippedUnits)}</div><div class="hint">unidades enviadas (shipped)</div></div>
       <div class="kpi"><div class="lab">Ticket médio</div><div class="val">${MOEDA2(ticket)}</div><div class="hint">receita ÷ unidades</div></div>
       <div class="kpi"><div class="lab">Margem líquida (NPM)</div><div class="val">${PCT(npmBlend)}</div><div class="hint">ponderada por faturamento</div></div>
       <div class="kpi"><div class="lab">Conversão</div><div class="val">${PCT(conv)}</div><div class="hint">${NUM(tot.glanceViews)} visitas</div></div>
@@ -1983,6 +1983,229 @@ async function iniciarDashboard() {
   }
   const _alrF = document.getElementById('alrFiltro');
   if (_alrF) _alrF.addEventListener('change', () => { if (state.pagina === 'alertas') { resetLim(); renderAlertas(); } });
+
+
+  /* ------------------------------------------------------------------------
+     7a2. ÍCONES DE INFORMAÇÃO (i) nas métricas: explicam o que cada número significa.
+     Um glossário por rótulo (chave = texto do rótulo, sem acento e minúsculo). Uma entrada
+     'pagina|rotulo' vale só naquela página e tem prioridade sobre a genérica. O ícone é
+     acrescentado sozinho a KPIs, cabeçalhos de tabela e títulos de gráfico cujo rótulo esteja
+     no glossário (um observador refaz isso quando a página é redesenhada).
+     ------------------------------------------------------------------------ */
+  const GLOSSARIO = {
+    // ---- Início e Vendas
+    'faturamento': 'Receita enviada (shipped revenue): valor dos produtos que a Amazon já despachou aos clientes no período, ao preço de venda. Difere da receita pedida, que conta o momento do pedido.',
+    'unidades enviadas': 'Unidades que a Amazon já despachou aos clientes no período (shipped units).',
+    'ticket médio': 'Receita dividida pelas unidades do mesmo período: quanto cada unidade vendida rendeu em média.',
+    'margem líquida (npm)': 'Net Pure Product Margin: margem líquida do produto informada pela Amazon, depois dos custos e descontos do Vendor. No total, é a média ponderada pelo faturamento.',
+    'conversão': 'Unidades vendidas divididas pelas visitas à página do produto. É uma aproximação: o Vendor não informa a conversão exata.',
+    'impacto de problemas': 'Soma do valor estimado dos diagnósticos abaixo, exceto Oportunidades. É uma estimativa do que se deixa de ganhar ou fica parado, não uma perda contábil.',
+    'receita pedida por semana': 'Receita dos pedidos feitos pelos clientes em cada semana fechada (domingo a sábado).',
+    'semana a semana': 'Semanas fechadas do mês em andamento, de domingo a sábado. A semana que cruza a virada do mês inclui dias do mês anterior.',
+    'produtos no mês em andamento': 'Soma das semanas fechadas mostradas na tabela ao lado, só de produtos com venda ou visita.',
+    'semana': 'Semana de domingo a sábado, fechada há pelo menos 2 dias. A semana 1 é a que contém o dia 1º de janeiro.',
+    'receita pedida': 'Receita dos pedidos feitos pelos clientes (ordered revenue), ao preço de venda. Pode ficar negativa quando os cancelamentos superam os pedidos novos.',
+    'vs. semana anterior': 'Variação percentual em relação à semana fechada anterior.',
+    'inicio|unidades': 'Unidades pedidas pelos clientes na semana (ordered units).',
+    'visitas': 'Visualizações da página do produto (glance views). Contam só as visitas em que a oferta em destaque é da Amazon.',
+    'inicio|conversão': 'Unidades pedidas divididas pelas visitas da semana.',
+    'margem líq.': 'Margem líquida do produto (NPM) informada pela Amazon, ponderada pela receita.',
+    'estoque (un)': 'Unidades vendáveis em estoque na Amazon na última posição informada da semana.',
+    'ruptura': 'Parcela do tempo em que o produto ficou indisponível para compra, ponderada pelo estoque (taxa de ruptura da Amazon).',
+    'parado (un)': 'Unidades que a Amazon classifica como excedente frente à demanda prevista.',
+    'inicio|estoque': 'Unidades vendáveis em estoque na Amazon.',
+    '90+ dias': 'Unidades vendáveis armazenadas há mais de 90 dias.',
+    'giro': 'Sell-through: proporção do estoque que foi vendida no período. Quanto maior, mais rápido o produto gira.',
+    'margem (npm)': 'Margem líquida do produto informada pela Amazon.',
+    'receita': 'Receita do produto no período.',
+    'potencial': 'Estimativa do ganho adicional se o produto chegasse à referência do diagnóstico (a média da conta ou a visibilidade mediana).',
+    'pedidos': 'Unidades pedidas pelos clientes no mês.',
+    'impacto': 'Valor estimado do problema em reais: quanto se deixa de ganhar em relação ao esperado. É uma estimativa.',
+    'receita atual': 'Receita do produto no mês.',
+    'unid. perdidas (est.)': 'Unidades que provavelmente teriam sido vendidas nas visitas em que o produto estava sem estoque, usando a conversão média da conta.',
+    'cobertura (dias)': 'Estoque vendável dividido pela venda média diária do mês: por quantos dias o estoque dura no ritmo atual.',
+    'faturamento por conta': 'Receita enviada de cada conta no período selecionado.',
+    'faturamento mês a mês': 'Receita enviada por mês, uma linha por conta.',
+    'margem líquida (npm) vs. markup de varejo': 'NPM é a margem líquida final informada pela Amazon. Markup de varejo é (preço de lista menos custo líquido) dividido pelo custo líquido, em média nos POs do mês.',
+    // ---- Estoque
+    'composição do estoque (custo)': 'Custo do estoque vendável, separado em saudável e não saudável segundo a classificação da Amazon.',
+    'conversão no tempo': 'Unidades enviadas divididas pelas visitas, mês a mês.',
+    'cobertura de estoque (dias)': 'Unidades em estoque divididas pela velocidade de venda diária do mês.',
+    'ruptura (oos)': 'Porcentagem do tempo em que o produto ficou indisponível, ponderada pelo estoque.',
+    // ---- Compras e pedidos
+    'sell-in (compra) vs. sell-out (venda)': 'Sell-in: custo do que a Amazon recebeu, pelo mês do último recebimento. POs recebidas: valor total dos POs que já receberam algo, pelo mês de criação do PO. Sell-out: custo do que foi vendido.',
+    'pedidos de compra (pos)': 'Resumo dos pedidos de compra (POs) que a Amazon criou no período.',
+    'pos criados no período': 'Quantidade de pedidos de compra (POs) criados pela Amazon no período.',
+    'taxa de rejeição': 'Unidades rejeitadas divididas por (confirmadas mais rejeitadas): quanto do que a Amazon pediu a conta não aceitou fornecer.',
+    'pos': 'Pedidos de compra criados no período.',
+    'confirmado': 'Unidades que a conta confirmou (aceitou) fornecer.',
+    'rejeitado': 'Unidades que a conta rejeitou nos POs.',
+    'recebido': 'Unidades que a Amazon já recebeu.',
+    'data do pedido': 'Data em que a Amazon criou o PO.',
+    'nº do pedido': 'Número do pedido de compra (PO). Clique na linha para ver os itens.',
+    'compras|status': 'Aberto ou fechado, conforme a Amazon. Atrasado: PO aberto, com a janela de entrega vencida e unidades confirmadas ainda não recebidas.',
+    'janela de entrega': 'Período em que a Amazon espera receber a mercadoria.',
+    'itens': 'Quantidade de produtos (linhas) no PO.',
+    'compras|pedido': 'Unidades pedidas pela Amazon no PO.',
+    'valor confirmado': 'Unidades confirmadas multiplicadas pelo custo unitário do PO.',
+    'valor recebido': 'Unidades já recebidas multiplicadas pelo custo unitário do PO.',
+    // ---- Previsão
+    'demanda prevista (r$)': 'Demanda média prevista pela Amazon para os próximos 60 dias, em unidades, multiplicada pelo custo médio de cada produto.',
+    'maior demanda prevista por produto': 'Produtos com mais unidades previstas pela Amazon para o próximo ciclo.',
+    'média': 'Demanda média prevista pela Amazon, em unidades.',
+    'p90': 'Cenário alto de demanda: em 90% dos cenários da Amazon a demanda fica abaixo desse valor.',
+    // ---- Produtos
+    'top 10 asins por faturamento': 'Os 10 produtos com maior receita no período selecionado.',
+    'concentração de receita': 'Quanto da receita se concentra nos maiores produtos.',
+    'curva de concentração acumulada': 'Porcentagem acumulada da receita, do produto que mais vende para o que menos vende.',
+    'resumo por classe': 'Curva ABC: A reúne os produtos que somam até 80% da receita, B os que levam a 95% e C o restante.',
+    'produtos classe a': 'Produtos que, juntos, respondem por até 80% da receita.',
+    'bsr': 'Best Sellers Rank: posição do produto no ranking de mais vendidos da categoria na Amazon. Quanto menor, melhor.',
+    'faturamento no período': 'Receita pedida do produto no período selecionado.',
+    'estoque saudável': 'Custo do estoque vendável que a Amazon não classifica como não saudável.',
+    'cobertura': 'Estoque vendável dividido pela venda média diária do último mês: por quantos dias o estoque dura.',
+    'classe': 'Curva ABC: A até 80% da receita acumulada, B até 95%, C o restante.',
+    '% do total': 'Participação da classe na receita total.',
+    '% acumulado': 'Participação acumulada na receita, do maior produto para baixo.',
+    // ---- Tempo real
+    'receita hoje': 'Receita dos pedidos de hoje (horário de Brasília), somando as horas já informadas. Pode cair quando há cancelamentos.',
+    'unidades hoje': 'Unidades pedidas hoje, somando as horas já informadas.',
+    'ticket médio hoje': 'Receita de hoje dividida pelas unidades de hoje.',
+    'últimas 24h': 'Receita das últimas 24 horas.',
+    'ontem (dia inteiro)': 'Receita do dia de ontem inteiro, para comparação.',
+    'receita por hora: hoje vs. ontem': 'Receita pedida em cada hora do dia, hoje contra ontem.',
+    'visitas por hora: hoje vs. ontem': 'Visitas em cada hora, hoje contra ontem. O tráfego chega com cerca de 4 horas de atraso.',
+    'estoque disponível por hora': 'Unidades em estoque ao longo do dia. O relatório é esparso: vale o último valor informado de cada produto.',
+    'risco de ruptura': 'Produtos que venderam nas últimas 24 horas e estão sem estoque ou com menos de 12 horas de cobertura.',
+    'receita ontem (mesmo período)': 'Receita de ontem até a mesma hora de hoje.',
+    'variação': 'Diferença de hoje contra ontem no mesmo período.',
+    'visitas hoje': 'Visitas de hoje até a última hora com dado de tráfego (atraso de cerca de 4 horas).',
+    'tempo-real|conversão': 'Unidades pedidas divididas pelas visitas, só nas horas que já têm dado de visitas.',
+    'visitas ontem (mesmo período)': 'Visitas de ontem até a mesma hora de hoje.',
+    'estoque agora': 'Unidades da última informação de estoque de cada produto.',
+    'vendas 24h (un)': 'Unidades pedidas nas últimas 24 horas.',
+    'tempo-real|cobertura': 'Estoque agora dividido pela venda média por hora das últimas 24 horas, expresso em tempo.',
+    // ---- Oferta em destaque
+    'visualizações perdidas': 'Porcentagem das visualizações da página do produto em que a oferta em destaque (Buy Box) não é da Amazon. Quanto menor, melhor.',
+    'ganhando': 'Produtos com até 10% das visualizações perdidas.',
+    'disputado': 'Produtos com entre 10% e 50% das visualizações perdidas.',
+    'perdendo': 'Produtos com mais de 50% das visualizações perdidas.',
+    'receita em risco (est.)': 'Receita pedida na semana multiplicada por perdidas ÷ (1 − perdidas). É uma estimativa, o real tende a ser menor porque quem perde o destaque converte menos.',
+    'sem leitura': 'Produtos com poucas visitas (menos de 10 no total) ou sem dado na semana, sem porcentagem confiável.',
+    'visualizações em que a oferta em destaque é de outro vendedor': 'Porcentagem por semana, uma linha por conta. Quanto menor, melhor.',
+    'situação': 'Ganhando, Disputado ou Perdendo, conforme a porcentagem de visualizações perdidas.',
+    'estoque (un.)': 'Unidades vendáveis em estoque na última semana fechada, segundo o inventário da Amazon. Vazio quando a Amazon não trouxe linha do produto.',
+    'perdidas': 'Porcentagem das visualizações em que a oferta em destaque não é da Amazon.',
+    'visitas com destaque da amazon': 'Visualizações em que a oferta em destaque é da Amazon (as visitas contadas no relatório de tráfego).',
+    'visitas perdidas (est.)': 'Visualizações em que o destaque é de outro vendedor: visitas com destaque × perdidas ÷ (1 − perdidas).',
+    // ---- Alertas
+    'alertas críticos': 'Alertas que exigem ação primeiro: destaque perdido, queda de vendas de 60% ou mais, cobertura abaixo de 7 dias e listings suprimidos.',
+    'total de alertas': 'Todos os alertas das contas selecionadas.',
+    'oferta em destaque perdida': 'Produtos com mais de 50% das visualizações perdidas na última semana fechada.',
+    'queda de vendas': 'Receita pedida caiu 30% ou mais contra a semana anterior (a semana anterior teve R$ 300 ou mais).',
+    'queda de conversão': 'Conversão caiu 30% ou mais contra a semana anterior, com pelo menos 30 visitas nas duas semanas.',
+    'cobertura baixa': 'Estoque vendável dura menos de 15 dias no ritmo de vendas da semana.',
+    'listing com problema': 'Produtos suprimidos ou com erros na Listings Items API.',
+    'prioridade': 'Crítico exige ação primeiro; Atenção pede acompanhamento.',
+    'alerta': 'Tipo do alerta.',
+    'detalhe': 'Números que motivaram o alerta.',
+    'impacto (est.)': 'Valor estimado em reais. As bases variam entre os tipos (receita em risco, receita perdida) e os valores não devem ser somados.',
+    // ---- Retenção
+    'compradores recorrentes': 'Em quantos POs diferentes o produto aparece, ou seja, a Amazon recomprando. Não é o número de clientes.',
+    'pedidos não atendidos': 'Unidades pedidas pela Amazon em POs que a conta rejeitou (não aceitou fornecer). Não são pedidos de clientes.',
+    'clientes que recompram': 'Brand Analytics: porcentagem dos clientes do produto que compraram mais de uma vez na semana de referência.',
+    'receita de recompra': 'Brand Analytics: receita gerada por clientes que compraram mais de uma vez.',
+    'comprado junto com': 'Outro produto que os clientes compram no mesmo pedido.',
+    'ranking': 'Posição entre os produtos mais comprados junto com este (1 é o mais frequente).',
+    '% de frequência': 'Porcentagem dos pedidos do produto que também incluem o produto ao lado.',
+    'termo de busca': 'Termo digitado pelos clientes na busca da Amazon.',
+    'produto mais clicado': 'Produto da conta que está entre os mais clicados nesse termo.',
+    'ranking do termo': 'Posição do termo entre os mais buscados na Amazon (1 é o mais buscado).',
+    'cliques do produto': 'Parcela dos cliques dessa busca que foi para o produto.',
+    'retencao|conversão do produto': 'Parcela das compras feitas a partir dessa busca que ficaram com o produto.',
+    // ---- Saúde dos Listings e Qualidade
+    'saúde do catálogo': 'Porcentagem de ASINs sem erros e sem supressão na Listings Items API da Amazon.',
+    'asins suprimidos': 'Produtos que a Amazon escondeu da busca por causa de erros no listing.',
+    'asins com avisos (não suprimidos)': 'Produtos com recomendações da Amazon que ainda não bloqueiam a venda.',
+    'erros': 'Problemas no listing que podem limitar ou impedir a venda (a Amazon pode suprimir o produto).',
+    'avisos': 'Recomendações da Amazon que não bloqueiam a venda.',
+    'erros (não suprimem)': 'Erros que não fizeram a Amazon suprimir o produto.',
+    'sku': 'Código do produto cadastrado pela conta.',
+    'nota cdq (estim.)': 'Estimativa própria de qualidade do catálogo (título, bullets, imagens, atributos, A+ e variações). Não é a nota oficial da Amazon.',
+    'componente(s) em d': 'Componentes da nota de qualidade que ficaram no pior grau (D).',
+    'score geral': 'Nota geral estimada do produto, combinando os componentes. Quanto maior, melhor.',
+    'grau geral': 'Letra de A (melhor) a D (pior) derivada da nota geral.',
+    'score': 'Nota do componente. Quanto maior, melhor.',
+    'grau': 'Letra de A (melhor) a D (pior) derivada da nota.',
+    'título': 'Componente da nota de qualidade: título do listing.',
+    'bullets': 'Componente da nota de qualidade: tópicos de destaque do listing.',
+    'imagens': 'Componente da nota de qualidade: imagens do listing.',
+    'atributos': 'Componente da nota de qualidade: atributos preenchidos do produto.',
+    'a+': 'Componente da nota de qualidade: conteúdo A+ do listing.',
+    'variações': 'Componente da nota de qualidade: variações (pais e filhos) do produto.',
+    'distribuição de asins por grau geral': 'Quantidade de produtos em cada grau geral, de A a D.',
+    'defeitos críticos (grau d)': 'Produtos com algum componente no pior grau (D).'
+  };
+  const _semAcento = s => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+  const GLOSS_MAP = {};
+  Object.keys(GLOSSARIO).forEach(k => { GLOSS_MAP[_semAcento(k)] = GLOSSARIO[k]; });
+
+  function chaveInfo(el){
+    let rot = '';
+    el.childNodes.forEach(n => { if (n.nodeType === 3) rot += n.textContent; else if (n.nodeType === 1 && !n.classList.contains('info')) rot += n.textContent; });
+    rot = _semAcento(rot.split(' · ')[0]);
+    if (!rot) return null;
+    const pg = (el.closest('.page') || {id:''}).id.replace(/^page-/, '');
+    if (GLOSS_MAP[pg + '|' + rot]) return pg + '|' + rot;
+    return GLOSS_MAP[rot] ? rot : null;
+  }
+
+  function aplicarInfos(){
+    document.querySelectorAll('.main .kpi .lab, .main th, .main .card h3').forEach(el => {
+      if (el.dataset.infoOk) return;
+      el.dataset.infoOk = '1';
+      const k = chaveInfo(el);
+      if (!k) return;
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'info'; b.dataset.i = k; b.textContent = 'i';
+      b.setAttribute('aria-label', 'O que significa: ' + el.textContent.trim());
+      el.appendChild(b);
+    });
+  }
+
+  const _tip = document.createElement('div');
+  _tip.id = 'infoTip'; _tip.setAttribute('role', 'tooltip'); _tip.hidden = true;
+  document.body.appendChild(_tip);
+  let _tipDe = null;
+  function mostrarInfo(btn){
+    const txt = GLOSS_MAP[btn.dataset.i]; if (!txt) return;
+    _tip.textContent = txt; _tip.hidden = false; _tipDe = btn;
+    const r = btn.getBoundingClientRect(), w = _tip.offsetWidth, h = _tip.offsetHeight;
+    let x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+    let y = r.bottom + 8; if (y + h > window.innerHeight - 8) y = Math.max(8, r.top - h - 8);
+    _tip.style.left = x + 'px'; _tip.style.top = y + 'px';
+  }
+  function esconderInfo(){ _tip.hidden = true; _tipDe = null; }
+  document.addEventListener('mouseover', e => { const b = e.target.closest && e.target.closest('.info'); if (b) mostrarInfo(b); });
+  document.addEventListener('mouseout', e => { if (e.target.closest && e.target.closest('.info')) esconderInfo(); });
+  document.addEventListener('focusin', e => { const b = e.target.closest && e.target.closest('.info'); if (b) mostrarInfo(b); });
+  document.addEventListener('focusout', e => { if (e.target.closest && e.target.closest('.info')) esconderInfo(); });
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('.info');
+    if (!b) { esconderInfo(); return; }
+    e.preventDefault(); e.stopPropagation();
+    if (_tipDe === b && !_tip.hidden) esconderInfo(); else mostrarInfo(b);   // toque no celular
+  }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') esconderInfo(); });
+  window.addEventListener('scroll', esconderInfo, true);
+
+  (function(){
+    let agendado = false;
+    const rodar = () => { agendado = false; aplicarInfos(); };
+    new MutationObserver(() => { if (!agendado) { agendado = true; requestAnimationFrame(rodar); } })
+      .observe(document.querySelector('.main') || document.body, { childList: true, subtree: true });
+    aplicarInfos();
+  })();
 
   /* ------------------------------------------------------------------------
      7b. PÁGINAS E NAVEGAÇÃO
