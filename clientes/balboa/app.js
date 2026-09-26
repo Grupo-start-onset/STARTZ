@@ -1407,7 +1407,7 @@ async function iniciarDashboard() {
       st.innerHTML = 'Ainda não há dados de oferta em destaque para as contas selecionadas. Rode o <code>capturar_data_kiosk.py</code> (cada consulta leva cerca de 15 a 20 minutos) e depois o <code>transformar_destaque.py</code>.';
       document.getElementById('destKpi').innerHTML = '';
       destroyChart('destaque'); document.getElementById('destGrafDesc').textContent = '';
-      renderEmptyRow(tb, 8, 'Sem dados de oferta em destaque.');
+      renderEmptyRow(tb, 9, 'Sem dados de oferta em destaque.');
       return;
     }
     if (sem.length) { st.hidden = false; st.className = 'trstatus'; st.innerHTML = 'Sem dados de oferta em destaque: ' + esc(sem.join(', ')) + ' (a conta pode não ter acesso ou ainda não foi capturada).'; }
@@ -1425,10 +1425,10 @@ async function iniciarDashboard() {
       Object.keys(od.porAsin).forEach(asin => {
         const v = od.porAsin[asin][atual]; if (!v) return;
         const [gv, lost] = v, ant = anterior ? (od.porAsin[asin][anterior] || [null, null]) : [null, null];
-        const receita = ((psem[asin] || {})[atual] || {}).r;
+        const receita = ((psem[asin] || {})[atual] || {}).r, estoque = ((psem[asin] || {})[atual] || {}).e;
         const perd = destPerdidas(gv, lost);
         linhas.push({ k, asin, gv, lost, sit: destStatus(gv, lost), delta: (lost != null && ant[1] != null) ? lost - ant[1] : null,
-                      perd, risco: (receita > 0 && lost != null && lost < 1) ? receita * lost / (1 - lost) : null });
+                      estoque, perd, risco: (receita > 0 && lost != null && lost < 1) ? receita * lost / (1 - lost) : null });
       });
     });
 
@@ -1468,11 +1468,12 @@ async function iniciarDashboard() {
     const filtro = document.getElementById('destFiltro').value;
     const vis = linhas.filter(l => !filtro || (filtro === 'piorou' ? (l.delta != null && l.delta >= DEST_PIORA_PP) : l.sit[0] === filtro))
       .sort((a, b) => a.sit[2] - b.sit[2] || (b.risco || 0) - (a.risco || 0) || (b.perd || 0) - (a.perd || 0) || (b.gv || 0) - (a.gv || 0));
-    if (!vis.length) renderEmptyRow(tb, 8, 'Nenhum produto nessa situação.');
-    else tb.innerHTML = tbodyHTML('destaque', vis, 8, l => {
+    if (!vis.length) renderEmptyRow(tb, 9, 'Nenhum produto nessa situação.');
+    else tb.innerHTML = tbodyHTML('destaque', vis, 9, l => {
       const d = l.delta == null ? '—' : `<span style="color:var(--${l.delta > 0.005 ? 'bad' : (l.delta < -0.005 ? 'good' : 'muted')})">${l.delta > 0 ? '+' : ''}${(l.delta * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} pp</span>`;
       return `<tr>${celulaProd(l.k, l.asin)}
         <td><span class="tag ${l.sit[1]}">${l.sit[0]}</span></td>
+        <td class="num">${l.estoque == null ? '—' : NUM(l.estoque)}</td>
         <td class="num">${l.lost == null ? '—' : PCT(l.lost)}</td><td class="num">${d}</td>
         <td class="num">${l.gv == null ? '—' : NUM(l.gv)}</td>
         <td class="num">${l.perd == null ? (l.lost >= 1 ? 'n/d' : '—') : NUM(Math.round(l.perd))}</td>
