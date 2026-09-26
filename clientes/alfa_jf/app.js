@@ -2378,6 +2378,168 @@ async function iniciarDashboard() {
   document.getElementById('btnPDF').onclick = () => window.print();
 
   /* ------------------------------------------------------------------------
+     8b. BAIXAR O PAINEL INTEIRO OFFLINE (um único .html, sem internet)
+     Monta uma cópia autônoma da página: CSS, app.js, Chart.js, SheetJS, fontes e imagens
+     da marca embutidos, mais os dados de TODAS as contas (dados/*.json, ou dados_vendor.json)
+     e o tempo real (tempo_real/*.json). Um fetch() substituto, injetado no arquivo baixado,
+     entrega esses dados embutidos, então o app.js roda igual, em qualquer página do menu,
+     com todas as contas e o filtro de período. Só entra o que a própria página já carrega:
+     numa pasta de cliente (clientes/<conta>/), a cópia leva apenas os dados daquele cliente.
+     Miniaturas dos produtos continuam vindo da Amazon (aparecem só com internet).
+     ------------------------------------------------------------------------ */
+  const btnOffline = document.getElementById('btnOffline');
+  if (window.__OFFLINE) {
+    if (btnOffline) btnOffline.style.display = 'none';   // a cópia offline não se baixa de novo
+  } else if (btnOffline) {
+    btnOffline.onclick = baixarOffline;
+  }
+
+  async function baixarOffline(){
+    const rotulo = btnOffline.textContent;
+    const prog = t => { btnOffline.textContent = t; };
+    btnOffline.disabled = true; btnOffline.style.opacity = '.6';
+    try {
+      const abs = rel => new URL(rel, location.href).href;
+      const txt = async (url, opts) => {
+        const r = await fetch(url, opts);
+        if (!r.ok) throw new Error('HTTP ' + r.status + ' ao buscar ' + url);
+        return r.text();
+      };
+      const dataURI = async url => {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error('HTTP ' + r.status + ' ao buscar ' + url);
+        const blob = await r.blob();
+        return new Promise((ok, erro) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = erro; fr.readAsDataURL(blob); });
+      };
+      // replace com função assíncrona (o String.replace não espera Promise)
+      const substituir = async (s, re, fn) => {
+        const partes = []; let ult = 0;
+        for (const m of s.matchAll(re)) { partes.push(s.slice(ult, m.index), await fn(m)); ult = m.index + m[0].length; }
+        partes.push(s.slice(ult));
+        return partes.join('');
+      };
+      const scriptSeguro = js => js.replace(/<\/script/gi, '<\\/script');   // o navegador não pode achar que a tag fechou
+      const attr = (tag, nome) => { const m = tag.match(new RegExp('\\b' + nome + '\\s*=\\s*"([^"]*)"', 'i')); return m ? m[1] : null; };
+
+      // ---- 1. dados de todas as contas (mesmos endereços que o app.js usa)
+      const dados = {};
+      if (INDICE) {
+        prog('Baixando dados…');
+        dados['dados/index.json'] = await txt('dados/index.json', { cache:'no-store' });
+        let feitos = 0;
+        await Promise.all(CONTA_KEYS.map(async k => {
+          dados['dados/' + k + '.json'] = await txt('dados/' + k + '.json');
+          prog('Baixando dados ' + (++feitos) + '/' + CONTA_KEYS.length + '…');
+        }));
+      } else {
+        prog('Baixando dados…');
+        dados['dados_vendor.json'] = await txt('dados_vendor.json');
+      }
+      // tempo real: é opcional por conta; quem não tem arquivo fica de fora (a página já trata a ausência)
+      prog('Tempo real…');
+      await Promise.all(CONTA_KEYS.map(async k => {
+        try {
+          const r = await fetch(TR_BASE + k + '.json?t=' + Date.now(), { cache:'no-store' });
+          if (r.ok) dados['tempo_real/' + k + '.json'] = await r.text();
+        } catch (e) { /* sem tempo real para essa conta */ }
+      }));
+
+      // ---- 2. a própria página, como foi publicada (o DOM atual já foi alterado pelo app.js)
+      prog('Montando arquivo…');
+      let html = await txt(location.href.split('#')[0], { cache:'no-store' });
+
+      // fontes do Google: baixa só o subconjunto latin (cobre o português) e embute; se falhar, cai em fontes do sistema
+      let cssFontes = '';
+      const linkFonte = html.match(/<link\b[^>]*href="(https:\/\/fonts\.googleapis\.com\/[^"]+)"[^>]*>/i);
+      if (linkFonte) {
+        try {
+          const css = await txt(linkFonte[1].replace(/&amp;/g, '&'));
+          const blocos = [...css.matchAll(/\/\*\s*([\w-]+)\s*\*\/\s*(@font-face\s*\{[^}]*\})/g)].filter(m => m[1] === 'latin').map(m => m[2]);
+          const cache = {};
+          for (const b of blocos) {
+            const u = (b.match(/url\((https:[^)]+)\)/) || [])[1];
+            if (!u) continue;
+            if (!cache[u]) cache[u] = await dataURI(u);
+            cssFontes += b.split(u).join(cache[u]) + '\n';
+          }
+        } catch (e) { console.warn('Fontes não embutidas:', e); cssFontes = ''; }
+      }
+
+      // ---- 3. <link>: remove preconnect e Google Fonts, embute css local e ícone
+      html = await substituir(html, /<link\b[^>]*>/gi, async m => {
+        const tag = m[0], rel = (attr(tag, 'rel') || '').toLowerCase(), href = attr(tag, 'href') || '';
+        if (rel === 'preconnect' || /^https:\/\/fonts\.googleapis\.com\//.test(href)) return '';
+        if (rel === 'stylesheet' && href && !/^(https?:|data:)/.test(href)) {
+          let css = await txt(abs(href));
+          css = await substituir(css, /url\(\s*(['"]?)(?!data:|https?:|#)([^'")]+)\1\s*\)/g, async u => 'url(' + await dataURI(new URL(u[2], abs(href)).href) + ')');
+          return '<style>\n' + cssFontes + css + '\n</style>';
+        }
+        if (href && !/^(https?:|data:)/.test(href)) return tag.replace(href, await dataURI(abs(href)));   // favicon
+        return tag;
+      });
+      if (!/<style>/.test(html) && cssFontes) html = html.replace(/<\/head>/i, () => '<style>\n' + cssFontes + '</style>\n</head>');
+
+      // ---- 4. imagens locais (logos em assets/)
+      html = await substituir(html, /(<img\b[^>]*?\bsrc=")(?!data:|https?:)([^"]+)"/gi, async m => m[1] + await dataURI(abs(m[2])) + '"');
+
+      // ---- 5. bibliotecas externas (Chart.js, SheetJS) e o app.js
+      prog('Embutindo bibliotecas…');
+      let appJs = null;
+      html = await substituir(html, /<script\b[^>]*\bsrc="([^"]+)"[^>]*>\s*<\/script>/gi, async m => {
+        const js = await txt(/^https?:/.test(m[1]) ? m[1] : abs(m[1]));
+        if (!/^https?:/.test(m[1])) { appJs = js; return '<!--APP_JS-->'; }   // app.js entra por último, depois dos dados
+        return '<script>' + scriptSeguro(js) + '</script>';
+      });
+      if (appJs == null) throw new Error('app.js não encontrado na página');
+
+      // ---- 6. fetch embutido + dados, antes do app.js
+      const agora = new Date();
+      const geradaEm = agora.toLocaleString('pt-BR', { timeZone:'America/Sao_Paulo', day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+      const shim = '<script>\n' +
+        'window.__OFFLINE = { geradaEm: ' + JSON.stringify(geradaEm) + ' };\n' +
+        '(function(){\n' +
+        '  var chave = function(u){\n' +
+        '    u = String(u).split("?")[0].split("#")[0];\n' +
+        '    var m = u.match(/dados\\/([^\\/]+\\.json)$/); if (m) return "dados/" + m[1];\n' +
+        '    m = u.match(/tempo_real\\/([^\\/]+\\.json)$/); if (m) return "tempo_real/" + m[1];\n' +
+        '    if (/dados_vendor\\.json$/.test(u)) return "dados_vendor.json";\n' +
+        '    return null;\n' +
+        '  };\n' +
+        '  window.fetch = function(u){\n' +
+        '    var k = chave(u), el = null;\n' +
+        '    if (k) { var els = document.querySelectorAll("script[type=\\"application/json\\"][data-k]"); for (var i = 0; i < els.length; i++) if (els[i].getAttribute("data-k") === k) { el = els[i]; break; } }\n' +
+        '    return Promise.resolve(el ? new Response(el.textContent, { status:200, headers:{ "Content-Type":"application/json" } }) : new Response("", { status:404 }));\n' +
+        '  };\n' +
+        '  document.addEventListener("DOMContentLoaded", function(){\n' +
+        '    var f = document.querySelector(".sidefoot");\n' +
+        '    if (f) { var d = document.createElement("div"); d.style.marginTop = "6px"; d.textContent = "Cópia offline, baixada em " + window.__OFFLINE.geradaEm; f.appendChild(d); }\n' +
+        '  });\n' +
+        '})();\n' +
+        '</script>';
+      // JSON dentro de <script type="application/json">: só o "<" precisa de escape (\u003c é JSON válido)
+      const blocosDados = Object.keys(dados).map(k =>
+        '<script type="application/json" data-k="' + k + '">' + dados[k].replace(/</g, '\\u003c') + '</script>').join('\n');
+      html = html.replace(/<head[^>]*>/i, m => m + '\n' + shim);
+      html = html.replace('<!--APP_JS-->', () => blocosDados + '\n<script>\n' + scriptSeguro(appJs) + '\n</script>');
+
+      // ---- 7. entrega o arquivo
+      const blob = new Blob([html], { type:'text/html;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'painel-grupo-start_' + agora.toLocaleDateString('sv-SE', { timeZone:'America/Sao_Paulo' }) + '.html';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      prog(rotulo);
+    } catch (e) {
+      console.error(e);
+      prog('Erro ao gerar (veja o console)');
+      setTimeout(() => prog(rotulo), 5000);
+    } finally {
+      btnOffline.disabled = false; btnOffline.style.opacity = '';
+    }
+  }
+
+  /* ------------------------------------------------------------------------
      9. INICIALIZAÇÃO
      ------------------------------------------------------------------------ */
   if (INDICE) {
