@@ -1,0 +1,2 @@
+python-amazon-sp-api==2.1.22
+requests
