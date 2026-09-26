@@ -81,7 +81,15 @@ function marcaDoAsin(k, c, asin){
 // Map asin -> marca, para todos os produtos da conta (guardado por conta)
 function mapaMarcas(k, c){
   let m = _cacheMarcas.get(c);
-  if (!m) { m = new Map(); for (const a of universoAsins(c)) m.set(a, marcaDoAsin(k, c, a)); _cacheMarcas.set(c, m); }
+  if (!m) {
+    m = new Map(); for (const a of universoAsins(c)) m.set(a, marcaDoAsin(k, c, a));
+    // marcas que só diferem em maiúsculas ou espaços ("Pet Clean" e "PET CLEAN") viram uma só, na grafia mais usada
+    const chave = v => v.toLowerCase().replace(/\s+/g, ' ').trim(), graf = {};
+    for (const v of m.values()) if (v) { const g = graf[chave(v)] || (graf[chave(v)] = {}); g[v] = (g[v] || 0) + 1; }
+    const canon = {}; for (const ch of Object.keys(graf)) canon[ch] = Object.entries(graf[ch]).sort((x, y) => y[1] - x[1])[0][0];
+    for (const [a, v] of m) if (v) m.set(a, canon[chave(v)]);
+    _cacheMarcas.set(c, m);
+  }
   return m;
 }
 
