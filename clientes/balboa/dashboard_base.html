@@ -36,6 +36,8 @@
         <svg viewBox="0 0 24 24"><path d="M20 12l-8 8-9-9V3h8l9 9zM7.5 7.5h.01"/></svg>Produtos</a>
       <a href="#/tempo-real" data-pagina="tempo-real">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Tempo real</a>
+      <a href="#/destaque" data-pagina="destaque">
+        <svg viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 01-10 0V4zM17 5h3v2a3 3 0 01-3 3M7 5H4v2a3 3 0 003 3"/></svg>Oferta em destaque</a>
       <a href="#/retencao" data-pagina="retencao">
         <svg viewBox="0 0 24 24"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 01-3 3H3"/></svg>Retenção</a>
       <a href="#/listings" data-pagina="listings">
@@ -420,6 +422,41 @@
                   <tbody></tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ===================== PÁGINA: OFERTA EM DESTAQUE ===================== -->
+      <div class="page" id="page-destaque" hidden>
+
+        <div class="section" id="sec-destaque">
+          <p class="sectitle">Oferta em destaque (Buy Box) <span class="beta">dado oficial da Amazon</span></p>
+          <p class="secdesc" id="destDesc"></p>
+          <div class="trstatus" id="destStatus" hidden></div>
+          <div class="kpis" id="destKpi" style="margin-bottom:16px"></div>
+          <div class="card" style="margin-bottom:16px">
+            <h3>Visualizações em que a oferta em destaque é de outro vendedor</h3>
+            <p class="hint" id="destGrafDesc"></p>
+            <div class="chartbox"><canvas id="chDestaque"></canvas></div>
+          </div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+              <h3 style="margin:0">Produtos, na última semana fechada</h3>
+              <select id="destFiltro" aria-label="Filtrar por situação" style="padding:6px 10px;border:1px solid var(--line,#D8E2E2);border-radius:8px;font:inherit">
+                <option value="">Todas as situações</option>
+                <option value="Perdendo">Só perdendo</option>
+                <option value="Disputado">Só disputado</option>
+                <option value="Ganhando">Só ganhando</option>
+                <option value="piorou">Só os que pioraram (10 pontos ou mais)</option>
+              </select>
+            </div>
+            <div class="tbl-wrap" style="max-height:520px">
+              <table class="tbl" id="tblDestaque">
+                <thead><tr><th>Produto</th><th>Conta</th><th>Situação</th><th class="num">Perdidas</th><th class="num">Vs. semana anterior</th><th class="num">Visitas com destaque da Amazon</th><th class="num">Visitas perdidas (est.)</th><th class="num">Receita em risco (est.)</th></tr></thead>
+                <tbody></tbody>
+              </table>
             </div>
           </div>
         </div>

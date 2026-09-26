@@ -1369,6 +1369,116 @@ async function iniciarDashboard() {
       '. Termos de busca: só os termos em que um produto da conta está entre os mais clicados. Onde não houver dado, a aba mostra vazio';
   }
 
+  /* ===================================================================
+     7e. OFERTA EM DESTAQUE (Buy Box), Data Kiosk Vendor Analytics
+     Por ASIN e semana: glanceViews (visualizações em que a Amazon GANHA o destaque) e
+     lostFeaturedOffer (fração das visualizações em que o destaque é de outro vendedor).
+     Visualizações totais = glanceViews / (1 - lostFeaturedOffer); perdidas = totais - glanceViews.
+     =================================================================== */
+  const DEST_LIM_GANHANDO = 0.10;    // até 10% perdidas = Ganhando
+  const DEST_LIM_PERDENDO = 0.50;    // acima de 50% = Perdendo (entre os dois = Disputado)
+  const DEST_MIN_VISITAS  = 10;      // abaixo disso, a porcentagem é ruído: "Poucas visitas"
+  const DEST_PIORA_PP     = 0.10;    // piora de 10 pontos percentuais ou mais
+
+  function destStatus(gv, lost){
+    if (lost == null || gv == null) return ['Sem dado', 'muted', 4];
+    if (lost >= 1) return ['Perdendo', 'bad', 0];
+    if (gv / (1 - lost) < DEST_MIN_VISITAS) return ['Poucas visitas', 'muted', 3];
+    if (lost > DEST_LIM_PERDENDO) return ['Perdendo', 'bad', 0];
+    if (lost > DEST_LIM_GANHANDO) return ['Disputado', 'warn', 1];
+    return ['Ganhando', 'good', 2];
+  }
+  const destPerdidas = (gv, lost) => (gv == null || lost == null || lost >= 1) ? null : gv * lost / (1 - lost);
+
+  function renderDestaque(){
+    const contas = state.contas.filter(k => CONTAS[k].ofertaDestaque);
+    const sem = state.contas.filter(k => !CONTAS[k].ofertaDestaque).map(k => CONTA_NOME[k]);
+    const st = document.getElementById('destStatus');
+    document.getElementById('destDesc').textContent =
+      'Porcentagem das visualizações da página do produto em que a oferta em destaque não é da Amazon. Situação: Ganhando (até ' +
+      Math.round(DEST_LIM_GANHANDO * 100) + '% perdidas), Disputado (até ' + Math.round(DEST_LIM_PERDENDO * 100) + '%) e Perdendo (acima). ' +
+      'Não informa qual vendedor ganha nem o motivo. Valores em "est." são estimativas.';
+    const tb = document.querySelector('#tblDestaque tbody');
+    if (!contas.length) {
+      st.hidden = false; st.className = 'trstatus warn';
+      st.innerHTML = 'Ainda não há dados de oferta em destaque para as contas selecionadas. Rode o <code>capturar_data_kiosk.py</code> (cada consulta leva cerca de 15 a 20 minutos) e depois o <code>transformar_destaque.py</code>.';
+      document.getElementById('destKpi').innerHTML = '';
+      destroyChart('destaque'); document.getElementById('destGrafDesc').textContent = '';
+      renderEmptyRow(tb, 8, 'Sem dados de oferta em destaque.');
+      return;
+    }
+    if (sem.length) { st.hidden = false; st.className = 'trstatus'; st.innerHTML = 'Sem dados de oferta em destaque: ' + esc(sem.join(', ')) + ' (a conta pode não ter acesso ou ainda não foi capturada).'; }
+    else st.hidden = true;
+
+    // semana mais recente entre as contas e a anterior a ela
+    const ids = [...new Set(contas.flatMap(k => CONTAS[k].ofertaDestaque.semanas.map(s => s.id)))].sort();
+    const atual = ids[ids.length - 1], anterior = ids[ids.length - 2] || null;
+    const fimDe = id => { for (const k of contas) { const s = CONTAS[k].ofertaDestaque.semanas.find(x => x.id === id); if (s) return s.fim; } return id; };
+
+    // ---- linhas por produto (semana atual)
+    const linhas = [];
+    contas.forEach(k => {
+      const od = CONTAS[k].ofertaDestaque, psem = CONTAS[k].porAsinSem || {};
+      Object.keys(od.porAsin).forEach(asin => {
+        const v = od.porAsin[asin][atual]; if (!v) return;
+        const [gv, lost] = v, ant = anterior ? (od.porAsin[asin][anterior] || [null, null]) : [null, null];
+        const receita = ((psem[asin] || {})[atual] || {}).r;
+        const perd = destPerdidas(gv, lost);
+        linhas.push({ k, asin, gv, lost, sit: destStatus(gv, lost), delta: (lost != null && ant[1] != null) ? lost - ant[1] : null,
+                      perd, risco: (receita > 0 && lost != null && lost < 1) ? receita * lost / (1 - lost) : null });
+      });
+    });
+
+    // ---- KPIs
+    const conta = s => linhas.filter(l => l.sit[0] === s).length;
+    const soma = f => linhas.reduce((t, l) => t + (f(l) || 0), 0);
+    const totV = (id) => { let gv = 0, tot = 0; contas.forEach(k => { const t = CONTAS[k].ofertaDestaque.totais[id]; if (t && t[0] != null && t[1] != null && t[1] < 1) { gv += t[0]; tot += t[0] / (1 - t[1]); } }); return tot > 0 ? 1 - gv / tot : null; };
+    const pAtual = totV(atual), pAnt = anterior ? totV(anterior) : null;
+    const dPP = (pAtual != null && pAnt != null) ? (pAtual - pAnt) * 100 : null;
+    const dTxt = dPP == null ? '' : ` · ${dPP > 0 ? '+' : ''}${dPP.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} pontos vs. semana anterior`;
+    const risco = soma(l => l.risco);
+    document.getElementById('destKpi').innerHTML =
+      kpiHTML('Visualizações perdidas', pAtual == null ? '—' : PCT(pAtual), 'semana ' + DM(atual) + ' a ' + DM(fimDe(atual)) + dTxt, dPP != null && dPP >= DEST_PIORA_PP * 100) +
+      kpiHTML('Ganhando', NUM(conta('Ganhando')), 'produtos com até ' + Math.round(DEST_LIM_GANHANDO * 100) + '% perdidas') +
+      kpiHTML('Disputado', NUM(conta('Disputado')), 'entre ' + Math.round(DEST_LIM_GANHANDO * 100) + '% e ' + Math.round(DEST_LIM_PERDENDO * 100) + '%') +
+      kpiHTML('Perdendo', NUM(conta('Perdendo')), 'mais de ' + Math.round(DEST_LIM_PERDENDO * 100) + '% perdidas', conta('Perdendo') > 0) +
+      kpiHTML('Receita em risco (est.)', MOEDA(risco), 'receita pedida na semana × perdidas ÷ (1 − perdidas); estimativa, o real tende a ser menor') +
+      kpiHTML('Sem leitura', NUM(conta('Poucas visitas') + conta('Sem dado')), 'poucas visitas ou sem dado na semana');
+
+    // ---- gráfico: % perdidas por semana, uma linha por conta
+    destroyChart('destaque');
+    const cores = ['#17868C', '#9C6510', '#2C7A57', '#7A4FA0', '#B04A4A', '#3A6EA5', '#6B7B3A'];
+    const datasets = contas.map((k, i) => {
+      const t = CONTAS[k].ofertaDestaque.totais;
+      return { label: CONTA_NOME[k], data: ids.map(id => (t[id] && t[id][1] != null) ? +(t[id][1] * 100).toFixed(1) : null),
+               borderColor: cores[i % cores.length], backgroundColor: 'transparent', tension: .25, pointRadius: 3, spanGaps: true };
+    });
+    document.getElementById('destGrafDesc').textContent = 'Porcentagem por semana (domingo a sábado). Quanto menor, melhor.';
+    charts.destaque = new Chart(document.getElementById('chDestaque'), {
+      type: 'line', data: { labels: ids.map(id => DM(id) + ' a ' + DM(fimDe(id))), datasets },
+      options: { ...baseGridOpts(), plugins: { legend: { labels: { boxWidth: 10, boxHeight: 10, font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => c.dataset.label + ': ' + (c.raw == null ? 'sem dado' : c.raw + '% perdidas') } } },
+        scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { min: 0, max: 100, grid: { color: '#EEF2F2' }, ticks: { font: { size: 10 }, callback: v => v + '%' } } } }
+    });
+
+    // ---- tabela
+    const filtro = document.getElementById('destFiltro').value;
+    const vis = linhas.filter(l => !filtro || (filtro === 'piorou' ? (l.delta != null && l.delta >= DEST_PIORA_PP) : l.sit[0] === filtro))
+      .sort((a, b) => a.sit[2] - b.sit[2] || (b.risco || 0) - (a.risco || 0) || (b.perd || 0) - (a.perd || 0) || (b.gv || 0) - (a.gv || 0));
+    if (!vis.length) renderEmptyRow(tb, 8, 'Nenhum produto nessa situação.');
+    else tb.innerHTML = tbodyHTML('destaque', vis, 8, l => {
+      const d = l.delta == null ? '—' : `<span style="color:var(--${l.delta > 0.005 ? 'bad' : (l.delta < -0.005 ? 'good' : 'muted')})">${l.delta > 0 ? '+' : ''}${(l.delta * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} pp</span>`;
+      return `<tr>${celulaProd(l.k, l.asin)}
+        <td><span class="tag ${l.sit[1]}">${l.sit[0]}</span></td>
+        <td class="num">${l.lost == null ? '—' : PCT(l.lost)}</td><td class="num">${d}</td>
+        <td class="num">${l.gv == null ? '—' : NUM(l.gv)}</td>
+        <td class="num">${l.perd == null ? (l.lost >= 1 ? 'n/d' : '—') : NUM(Math.round(l.perd))}</td>
+        <td class="num">${l.risco == null ? '—' : MOEDA2(l.risco)}</td></tr>`;
+    });
+  }
+  const _destF = document.getElementById('destFiltro');
+  if (_destF) _destF.addEventListener('change', () => { if (state.pagina === 'destaque') renderDestaque(); });
+
   function renderDetalhePorConta(porConta, meses){
     const ultimoMes = meses[meses.length-1];
     const tbody = document.querySelector('#tblContas tbody');
@@ -1763,6 +1873,8 @@ async function iniciarDashboard() {
                  render: ag => { renderCatalogo(ag); renderProdutosConcentracao(ag.meses); renderABC(ag.meses); } },
     'tempo-real': { titulo:'Tempo real', sub:'Vendas, tráfego e estoque por hora, horário de Brasília', periodo:false,
                  render: () => renderTempoReal() },
+    destaque:  { titulo:'Oferta em destaque', sub:'Quanto a Amazon ganha ou perde o Buy Box, por produto e por semana (não usa o filtro de período)', periodo:false,
+                 render: () => renderDestaque() },
     retencao:  { titulo:'Retenção', sub:'Recompra, cesta de compras e termos de busca', periodo:false,
                  render: () => renderRetencao() },
     listings:  { titulo:'Saúde dos Listings', sub:'Status, erros e avisos reais da Amazon (última captura)', periodo:false,
