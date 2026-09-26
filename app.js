@@ -284,6 +284,7 @@ async function iniciarDashboard() {
     qualidade:  () => renderQualidade(),
     qualAlerta: () => renderQualidade(),
     pedidos:    () => renderPedidos(),
+    alertas:    () => renderAlertas(),
     recompra:   () => renderRetencao(),
     cesta:      () => renderRetencao(),
     termos:     () => renderRetencao(),
@@ -1853,6 +1854,132 @@ async function iniciarDashboard() {
     ({ vendas:trVendas, trafego:trTrafego, estoque:trEstoque }[state.trTab] || trVendas)(a);
   }
 
+
+  /* ------------------------------------------------------------------------
+     7a. ALERTAS: o que exige ação agora, por prioridade
+     Cruza dados que o dashboard já tem (semana fechada mais recente contra a anterior):
+       destaque perdido (Data Kiosk), queda de vendas, queda de conversão, cobertura baixa
+       (porAsinSem: r receita, u unidades, v visitas, e estoque vendável), POs atrasados
+       (atrasados) e listings suprimidos ou com erro (qualidadeListings).
+     Limites ajustáveis nas constantes abaixo.
+     ------------------------------------------------------------------------ */
+  const ALR_QUEDA_VENDAS   = 0.30;   // queda de 30% ou mais na receita pedida (semana contra semana)
+  const ALR_QUEDA_VENDAS_C = 0.60;   // 60% ou mais = crítico
+  const ALR_MIN_RECEITA    = 300;    // R$ da semana anterior para a queda de vendas contar
+  const ALR_QUEDA_CONV     = 0.30;   // queda de 30% ou mais na conversão
+  const ALR_MIN_VISITAS    = 30;     // visitas mínimas nas duas semanas para a conversão contar
+  const ALR_MIN_UN_ANT     = 3;      // unidades mínimas na semana anterior
+  const ALR_COB_DIAS       = 15;     // cobertura abaixo disso = alerta
+  const ALR_COB_CRIT       = 7;      // cobertura abaixo disso (ou zero) = crítico
+  const ALR_MIN_UN_COB     = 3;      // unidades vendidas na semana para calcular cobertura
+  const ALR_PO_CRIT_DIAS   = 30;     // PO atrasado há 30 dias ou mais = crítico
+  const ALR_TIPOS = {
+    destaque: 'Oferta em destaque perdida',
+    vendas:   'Queda de vendas',
+    conversao:'Queda de conversão',
+    cobertura:'Cobertura baixa',
+    po:       'Pedido de compra atrasado',
+    listing:  'Listing com problema'
+  };
+
+  function montarAlertas(){
+    const out = [];
+    const add = (tipo, sev, k, asin, detalhe, impacto) => out.push({ tipo, sev, k, asin, detalhe, impacto: impacto == null ? null : impacto });
+    const semanasRef = {};
+    state.contas.forEach(k => {
+      const c = CONTAS[k] || {};
+      const sems = (c.semanas || []).map(s => s.id).sort();
+      const atual = sems[sems.length - 1], ant = sems[sems.length - 2];
+      if (atual) semanasRef[k] = { atual, ant, fim: ((c.semanas || []).find(s => s.id === atual) || {}).fim };
+      const psem = c.porAsinSem || {};
+
+      // destaque
+      const od = c.ofertaDestaque;
+      if (od && atual) {
+        const idD = (od.semanas || []).map(s => s.id).sort().pop();
+        Object.keys(od.porAsin || {}).forEach(asin => {
+          const v = od.porAsin[asin][idD]; if (!v) return;
+          const st = destStatus(v[0], v[1]);
+          if (st[0] !== 'Perdendo') return;
+          const r = ((psem[asin] || {})[idD] || {}).r;
+          const risco = (r > 0 && v[1] != null && v[1] < 1) ? r * v[1] / (1 - v[1]) : null;
+          add('destaque', 0, k, asin, PCT(v[1]) + ' das visualizações perdidas', risco);
+        });
+      }
+
+      // vendas, conversão e cobertura (semana fechada mais recente contra a anterior)
+      if (atual) Object.keys(psem).forEach(asin => {
+        const a = psem[asin][atual] || {}, b = ant ? (psem[asin][ant] || {}) : {};
+        const ra = a.r || 0, rb = b.r || 0;
+        if (ant && rb >= ALR_MIN_RECEITA && ra <= rb * (1 - ALR_QUEDA_VENDAS)) {
+          const q = (rb - ra) / rb;
+          add('vendas', q >= ALR_QUEDA_VENDAS_C ? 0 : 1, k, asin, 'Receita pedida ' + MOEDA(rb) + ' → ' + MOEDA(ra) + ' (' + DELTA(-q) + ')', rb - ra);
+        }
+        const va = a.v || 0, vb = b.v || 0, ua = a.u || 0, ub = b.u || 0;
+        if (ant && va >= ALR_MIN_VISITAS && vb >= ALR_MIN_VISITAS && ub >= ALR_MIN_UN_ANT) {
+          const ca = ua / va, cb = ub / vb;
+          if (ca <= cb * (1 - ALR_QUEDA_CONV)) {
+            const ticket = rb > 0 && ub > 0 ? rb / ub : null;
+            add('conversao', 1, k, asin, 'Conversão ' + PCT(cb) + ' → ' + PCT(ca) + ' com ' + NUM(va) + ' visitas', ticket == null ? null : (cb - ca) * va * ticket);
+          }
+        }
+        if (a.e != null && ua >= ALR_MIN_UN_COB) {
+          const dias = a.e / (ua / 7);
+          if (dias < ALR_COB_DIAS) {
+            add('cobertura', (a.e <= 0 || dias < ALR_COB_CRIT) ? 0 : 1, k, asin,
+                NUM(a.e) + ' un. em estoque, ' + NUM(ua) + ' vendidas na semana (' + (a.e <= 0 ? 'sem estoque' : DIAS(dias)) + ')', ra > 0 ? ra : null);
+          }
+        }
+      });
+
+      // pedidos de compra atrasados
+      Object.keys(c.atrasados || {}).forEach(asin => {
+        const p = c.atrasados[asin];
+        add('po', (p.maxDias || 0) >= ALR_PO_CRIT_DIAS ? 0 : 1, k, asin,
+            NUM(p.un) + ' un. em ' + NUM(p.pos) + ' PO(s), atraso de até ' + NUM(p.maxDias) + ' dias', p.custo);
+      });
+
+      // listings: suprimidos um a um (críticos); erros sem supressão viram uma linha-resumo por conta
+      const la = ((c.qualidadeListings || {}).asins) || {};
+      let comErro = 0;
+      Object.keys(la).forEach(asin => {
+        const l = la[asin];
+        if (l.suprimido) add('listing', 0, k, asin, 'Suprimido' + (l.qtdErros ? ' · ' + NUM(l.qtdErros) + ' erro(s)' : ''), null);
+        else if (l.qtdErros > 0) comErro++;
+      });
+      if (comErro) add('listing', 1, k, null, NUM(comErro) + ' produto(s) com erro, sem supressão. Detalhe na página Saúde dos Listings', null);
+    });
+    out.sort((a, b) => a.sev - b.sev || (b.impacto || 0) - (a.impacto || 0));
+    return { alertas: out, semanasRef };
+  }
+
+  function renderAlertas(){
+    const { alertas, semanasRef } = montarAlertas();
+    const ref = Object.values(semanasRef)[0];
+    document.getElementById('alrDesc').textContent =
+      'Semana fechada mais recente' + (ref ? ' (' + DM(ref.atual) + ' a ' + DM(ref.fim) + ')' : '') + ' contra a anterior. ' +
+      'Crítico: queda de vendas de ' + Math.round(ALR_QUEDA_VENDAS_C * 100) + '% ou mais, cobertura abaixo de ' + ALR_COB_CRIT + ' dias, PO atrasado há ' + ALR_PO_CRIT_DIAS + ' dias ou mais, destaque perdido, listing suprimido. ' +
+      'Os valores de impacto são estimativas e não devem ser somados entre alertas, porque o mesmo produto pode aparecer em mais de um.';
+    const conta = t => alertas.filter(a => a.tipo === t).length;
+    const crit = alertas.filter(a => a.sev === 0).length;
+    document.getElementById('alrKpi').innerHTML =
+      kpiHTML('Alertas críticos', NUM(crit), 'exigem ação primeiro', crit > 0) +
+      kpiHTML('Total de alertas', NUM(alertas.length), 'todos os tipos') +
+      Object.keys(ALR_TIPOS).map(t => kpiHTML(ALR_TIPOS[t], NUM(conta(t)), '')).join('');
+    const filtro = document.getElementById('alrFiltro').value;
+    const vis = alertas.filter(a => !filtro || (filtro === 'critico' ? a.sev === 0 : a.tipo === filtro));
+    const tb = document.querySelector('#tblAlertas tbody');
+    if (!vis.length) { renderEmptyRow(tb, 6, alertas.length ? 'Nenhum alerta neste filtro.' : 'Nenhum alerta para as contas selecionadas.'); return; }
+    tb.innerHTML = tbodyHTML('alertas', vis, 6, a => `<tr>
+      <td><span class="tag ${a.sev === 0 ? 'bad' : 'warn'}">${a.sev === 0 ? 'Crítico' : 'Atenção'}</span></td>
+      <td>${esc(ALR_TIPOS[a.tipo])}</td>
+      ${a.asin ? celulaProd(a.k, a.asin) : `<td>Vários produtos</td><td><span class="tag muted">${esc(CONTA_NOME[a.k])}</span></td>`}
+      <td>${esc(a.detalhe)}</td>
+      <td class="num">${a.impacto == null ? '—' : MOEDA(a.impacto)}</td></tr>`);
+  }
+  const _alrF = document.getElementById('alrFiltro');
+  if (_alrF) _alrF.addEventListener('change', () => { if (state.pagina === 'alertas') { resetLim(); renderAlertas(); } });
+
   /* ------------------------------------------------------------------------
      7b. PÁGINAS E NAVEGAÇÃO
      Cada bloco do dashboard é uma página (menu lateral, rota por hash: #/vendas).
@@ -1861,6 +1988,8 @@ async function iniciarDashboard() {
   const PAGINAS = {
     inicio:    { titulo:'Início', sub:'Visão geral, mês em andamento por semana, diagnósticos e detalhe por conta', periodo:true,
                  render: ag => { renderKPIs(ag.tot, ag.meses, agregarDiagnosticos()); renderSemanas(); renderDiagnosticos(); renderDetalhePorConta(ag.porConta, ag.meses); } },
+    alertas:   { titulo:'Alertas', sub:'O que exige ação agora, por prioridade (semana fechada contra a anterior; não usa o filtro de período)', periodo:false,
+                 render: () => renderAlertas() },
     vendas:    { titulo:'Vendas e margem', sub:'Faturamento e margem no período', periodo:true,
                  render: ag => { renderFaturamento(ag.porConta, ag.meses); renderMargemMarkup(ag.porMes, ag.meses); } },
     estoque:   { titulo:'Estoque', sub:'Composição, conversão, cobertura e ruptura', periodo:true,

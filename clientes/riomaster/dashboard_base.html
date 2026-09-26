@@ -24,6 +24,8 @@
     <nav class="sidenav" id="sideNav">
       <a href="#/inicio" data-pagina="inicio">
         <svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg>Início</a>
+      <a href="#/alertas" data-pagina="alertas">
+        <svg viewBox="0 0 24 24"><path d="M12 3l10 18H2L12 3zM12 10v5M12 18h.01"/></svg>Alertas</a>
       <a href="#/vendas" data-pagina="vendas">
         <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Vendas e margem</a>
       <a href="#/estoque" data-pagina="estoque">
@@ -143,6 +145,38 @@
               </tr></thead>
               <tbody></tbody>
             </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ===================== PÁGINA: ALERTAS ===================== -->
+      <div class="page" id="page-alertas" hidden>
+
+        <div class="section" id="sec-alertas">
+          <p class="sectitle">Alertas</p>
+          <p class="secdesc" id="alrDesc"></p>
+          <div class="kpis" id="alrKpi" style="margin-bottom:16px"></div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+              <h3 style="margin:0">Lista de alertas</h3>
+              <select id="alrFiltro" aria-label="Filtrar alertas" style="padding:6px 10px;border:1px solid var(--line,#D8E2E2);border-radius:8px;font:inherit">
+                <option value="">Todos os alertas</option>
+                <option value="critico">Só críticos</option>
+                <option value="destaque">Oferta em destaque perdida</option>
+                <option value="vendas">Queda de vendas</option>
+                <option value="conversao">Queda de conversão</option>
+                <option value="cobertura">Cobertura baixa</option>
+                <option value="po">Pedido de compra atrasado</option>
+                <option value="listing">Listing com problema</option>
+              </select>
+            </div>
+            <div class="tbl-wrap" style="max-height:620px">
+              <table class="tbl" id="tblAlertas">
+                <thead><tr><th>Prioridade</th><th>Alerta</th><th>Produto</th><th>Conta</th><th>Detalhe</th><th class="num">Impacto (est.)</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
 
