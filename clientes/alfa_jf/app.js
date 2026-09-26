@@ -53,7 +53,7 @@ async function iniciarDashboard() {
   // link do ASIN para a página do produto na Amazon Brasil (abre em nova aba)
   const linkAsin = a => a ? `<a href="https://www.amazon.com.br/dp/${encodeURIComponent(a)}" target="_blank" rel="noopener noreferrer" title="Abrir na Amazon">${esc(a)}</a>` : '';
 
-  const PALETTE = ['#17868C','#9C6510','#2C7A57','#A32E2A','#5F7378','#0D2B34'];
+  const PALETTE = ['#FD984D','#9C6510','#2C7A57','#A32E2A','#6C665E','#0F0F0F'];
   const LIM_PASSO = 100; // linhas mostradas por vez nas tabelas grandes (botão "Mostrar mais")
 
   /* ------------------------------------------------------------------------
@@ -648,7 +648,7 @@ async function iniciarDashboard() {
       data:{ labels: state.contas.map(k=>CONTA_NOME[k]),
         datasets:[
           {label:'A', data: state.contas.map(k=>porContaGrau[k].A), backgroundColor:'#2C7A57', borderRadius:4, stack:'s'},
-          {label:'B', data: state.contas.map(k=>porContaGrau[k].B), backgroundColor:'#17868C', borderRadius:4, stack:'s'},
+          {label:'B', data: state.contas.map(k=>porContaGrau[k].B), backgroundColor:'#FD984D', borderRadius:4, stack:'s'},
           {label:'C', data: state.contas.map(k=>porContaGrau[k].C), backgroundColor:'#9C6510', borderRadius:4, stack:'s'},
           {label:'D', data: state.contas.map(k=>porContaGrau[k].D), backgroundColor:'#A32E2A', borderRadius:4, stack:'s'}
         ] },
@@ -875,7 +875,7 @@ async function iniciarDashboard() {
       plugins:{legend:{labels:{boxWidth:10,boxHeight:10,font:{size:11}}}},
       scales:{
         x:{grid:{display:false}, ticks:{font:{size:10}}},
-        y:{grid:{color:'#EEF2F2'}, ticks:{font:{size:10}}}
+        y:{grid:{color:'#F0ECE5'}, ticks:{font:{size:10}}}
       }
     };
   }
@@ -902,7 +902,7 @@ async function iniciarDashboard() {
     charts.fatConta = new Chart(document.getElementById('chFatConta'), {
       type:'bar',
       data:{ labels: state.contas.map(k=>CONTA_NOME[k]),
-        datasets:[{ label:'Faturamento', data: state.contas.map(k=>porConta[k].shippedRevenue), backgroundColor:'#17868C', borderRadius:5 }] },
+        datasets:[{ label:'Faturamento', data: state.contas.map(k=>porConta[k].shippedRevenue), backgroundColor:'#FD984D', borderRadius:5 }] },
       options: { ...baseGridOpts(), plugins:{legend:{display:false}} }
     });
 
@@ -936,7 +936,7 @@ async function iniciarDashboard() {
       type:'line',
       data:{ labels: meses.map(MESLABEL),
         datasets:[{ label:'Conversão', data: meses.map(m => porMes[m].glanceViews>0 ? porMes[m].shippedUnits/porMes[m].glanceViews : null),
-          borderColor:'#17868C', backgroundColor:'#DCEEEF', fill:true, tension:.3, pointRadius:2 }] },
+          borderColor:'#FD984D', backgroundColor:'#FFEAD9', fill:true, tension:.3, pointRadius:2 }] },
       options: { ...baseGridOpts(), plugins:{legend:{display:false}},
         scales:{ ...baseGridOpts().scales, y:{...baseGridOpts().scales.y, ticks:{callback:v=>(v*100).toFixed(0)+'%'}} } }
     });
@@ -1021,9 +1021,9 @@ async function iniciarDashboard() {
         type:'bar',
         data:{ labels: mesesSell.map(MESLABEL),
           datasets:[
-            {label:'Sell-in (recebido, custo)', data: mesesSell.map(m=>sellinPorMes[m]), backgroundColor:'#17868C', borderRadius:4},
+            {label:'Sell-in (recebido, custo)', data: mesesSell.map(m=>sellinPorMes[m]), backgroundColor:'#FD984D', borderRadius:4},
             {label:'POs recebidas (valor total, pelo mês do PO)', data: mesesSell.map(m=>recPoPorMes[m]), backgroundColor:'#2C7A57', borderRadius:4},
-            {label:'Sell-out (venda, custo)', data: mesesSell.map(m=>sellOutPorMes[m]), backgroundColor:'#9C6510', borderRadius:4}
+            {label:'Sell-out (venda, custo)', data: mesesSell.map(m=>sellOutPorMes[m]), backgroundColor:'#151515', borderRadius:4}
           ] },
         options: { ...baseGridOpts(), plugins: { ...(baseGridOpts().plugins || {}), tooltip: { callbacks: {
           label: c => c.dataset.label + ': ' + MOEDA2(c.raw),
@@ -1161,7 +1161,7 @@ async function iniciarDashboard() {
       data:{ labels: meses.map(MESLABEL),
         datasets:[
           { label:'Margem líquida (NPM)', data: meses.map(m => porMes[m].npmDen>0 ? porMes[m].npmNum/porMes[m].npmDen : null),
-            borderColor:'#17868C', backgroundColor:'transparent', tension:.3, pointRadius:2 },
+            borderColor:'#FD984D', backgroundColor:'transparent', tension:.3, pointRadius:2 },
           { label:'Markup varejo', data: meses.map(m => porMes[m].markupDen>0 ? porMes[m].markupNum/porMes[m].markupDen : null),
             borderColor:'#9C6510', backgroundColor:'transparent', tension:.3, pointRadius:2, borderDash:[5,3] }
         ] },
@@ -1190,13 +1190,13 @@ async function iniciarDashboard() {
         type:'line',
         data:{ labels: mesesComDado.map(MESLABEL),
           datasets:[
-            {label:'Previsão (R$)', data: mesesComDado.map(m=>somaMes[m].valor), borderColor:'#17868C', backgroundColor:'#DCEEEF', fill:true, tension:.3, pointRadius:2},
+            {label:'Previsão (R$)', data: mesesComDado.map(m=>somaMes[m].valor), borderColor:'#FD984D', backgroundColor:'#FFEAD9', fill:true, tension:.3, pointRadius:2},
             {label:'p90 (unid.)', data: mesesComDado.map(m=>somaMes[m].p90), borderColor:'#9C6510', backgroundColor:'transparent', borderDash:[5,3], tension:.3, pointRadius:2, yAxisID:'y1'},
-            {label:'Média (unid.)', data: mesesComDado.map(m=>somaMes[m].mean), borderColor:'#5F7378', backgroundColor:'transparent', borderDash:[2,2], tension:.3, pointRadius:2, yAxisID:'y1'}
+            {label:'Média (unid.)', data: mesesComDado.map(m=>somaMes[m].mean), borderColor:'#6C665E', backgroundColor:'transparent', borderDash:[2,2], tension:.3, pointRadius:2, yAxisID:'y1'}
           ] },
         options: { ...baseGridOpts(),
           scales:{ x:{grid:{display:false},ticks:{font:{size:10}}},
-            y:{grid:{color:'#EEF2F2'},ticks:{font:{size:10}}},
+            y:{grid:{color:'#F0ECE5'},ticks:{font:{size:10}}},
             y1:{position:'right',grid:{display:false},ticks:{font:{size:10}}} } }
       });
     }
@@ -1225,13 +1225,13 @@ async function iniciarDashboard() {
     charts.topAsins = new Chart(document.getElementById('chTopAsins'), {
       type:'bar',
       data:{ labels: top.map(t => { const n = catalogInfo(t.contaKey, t.asin).nome; return n.length>34 ? n.slice(0,34)+'…' : n; }),
-        datasets:[{ label:'Faturamento', data: top.map(t=>t.rev), backgroundColor:'#17868C', borderRadius:4 }] },
+        datasets:[{ label:'Faturamento', data: top.map(t=>t.rev), backgroundColor:'#FD984D', borderRadius:4 }] },
       options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
         plugins:{legend:{display:false}, tooltip:{callbacks:{
           title:(items)=>catalogInfo(top[items[0].dataIndex].contaKey, top[items[0].dataIndex].asin).nome,
           afterLabel:(ctx)=>top[ctx.dataIndex].asin+' · '+top[ctx.dataIndex].contas
         }}},
-        scales:{ x:{grid:{color:'#EEF2F2'},ticks:{font:{size:10}}}, y:{grid:{display:false},ticks:{font:{size:10}}} } }
+        scales:{ x:{grid:{color:'#F0ECE5'},ticks:{font:{size:10}}}, y:{grid:{display:false},ticks:{font:{size:10}}} } }
     });
 
     const allSorted = topAsinsPeriodo(meses);
@@ -1242,7 +1242,7 @@ async function iniciarDashboard() {
     charts.concentracao = new Chart(document.getElementById('chConcentracao'), {
       type:'doughnut',
       data:{ labels:['Top 5 ASINs','Demais '+(allSorted.length-5>0?allSorted.length-5:0)+' ASINs'],
-        datasets:[{ data:[top5Rev, Math.max(totalRev-top5Rev,0)], backgroundColor:['#17868C','#D3DDDD'], borderWidth:0 }] },
+        datasets:[{ data:[top5Rev, Math.max(totalRev-top5Rev,0)], backgroundColor:['#FD984D','#E3DDD3'], borderWidth:0 }] },
       options:{ responsive:true, maintainAspectRatio:false, cutout:'68%',
         plugins:{ legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,font:{size:11}}},
           tooltip:{callbacks:{label:(ctx)=>MOEDA(ctx.raw)}} } },
@@ -1251,7 +1251,7 @@ async function iniciarDashboard() {
         afterDraw(chart){
           const {ctx, chartArea:{width,height,left,top}} = chart;
           ctx.save();
-          ctx.font='700 20px Archivo, sans-serif'; ctx.fillStyle='#0D2B34'; ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.font='700 20px Archivo, sans-serif'; ctx.fillStyle='#0F0F0F'; ctx.textAlign='center'; ctx.textBaseline='middle';
           ctx.fillText(PCT(share), left+width/2, top+height/2);
           ctx.restore();
         }
@@ -1271,14 +1271,14 @@ async function iniciarDashboard() {
       data:{ datasets:[{
         label:'Produtos',
         data: pontos.map(p => ({ x:p.x, y:p.y, r: maxR>0 ? 4 + 22*Math.sqrt((p.r||0)/maxR) : 4, _p:p })),
-        backgroundColor:'rgba(23,134,140,.45)', borderColor:'#17868C', borderWidth:1
+        backgroundColor:'rgba(23,134,140,.45)', borderColor:'#FD984D', borderWidth:1
       }] },
       options: { responsive:true, maintainAspectRatio:false,
         plugins:{ legend:{display:false}, tooltip:{callbacks:{
           label:(ctx)=>{ const p = ctx.raw._p; const info = catalogInfo(p.contaKey, p.a); return `${info.nome} — ${NUM(p.x)} visitas, ${PCTRAW(p.y)} conv., ${MOEDA(p.r)}`; }
         }} },
-        scales:{ x:{title:{display:true,text:'Visitas',font:{size:10}},grid:{color:'#EEF2F2'},ticks:{font:{size:10}}},
-          y:{title:{display:true,text:'Conversão (%)',font:{size:10}},grid:{color:'#EEF2F2'},ticks:{font:{size:10}}} } }
+        scales:{ x:{title:{display:true,text:'Visitas',font:{size:10}},grid:{color:'#F0ECE5'},ticks:{font:{size:10}}},
+          y:{title:{display:true,text:'Conversão (%)',font:{size:10}},grid:{color:'#F0ECE5'},ticks:{font:{size:10}}} } }
     });
   }
 
@@ -1290,11 +1290,11 @@ async function iniciarDashboard() {
       type:'line',
       data:{ labels: abc.map(a=>a.rank),
         datasets:[{ label:'% acumulado do faturamento', data: abc.map(a=>a.cumPct),
-          borderColor:'#17868C', backgroundColor:'#DCEEEF', fill:true, tension:0, pointRadius:0, borderWidth:2 }] },
+          borderColor:'#FD984D', backgroundColor:'#FFEAD9', fill:true, tension:0, pointRadius:0, borderWidth:2 }] },
       options: { ...baseGridOpts(), plugins:{legend:{display:false},
           tooltip:{callbacks:{title:(items)=>'Produto #'+items[0].label, label:(ctx)=>PCT(ctx.raw)+' acumulado'}}},
         scales:{ x:{grid:{display:false}, ticks:{font:{size:10}, maxTicksLimit:10}, title:{display:true,text:'Produtos, ordenados por faturamento',font:{size:10}}},
-          y:{grid:{color:'#EEF2F2'}, min:0, max:1, ticks:{font:{size:10}, callback:v=>(v*100).toFixed(0)+'%'}} } }
+          y:{grid:{color:'#F0ECE5'}, min:0, max:1, ticks:{font:{size:10}, callback:v=>(v*100).toFixed(0)+'%'}} } }
     });
 
     const resumoABC = ['A','B','C'].map(classe => {
@@ -1460,7 +1460,7 @@ async function iniciarDashboard() {
 
     // ---- gráfico: % perdidas por semana, uma linha por conta
     destroyChart('destaque');
-    const cores = ['#17868C', '#9C6510', '#2C7A57', '#7A4FA0', '#B04A4A', '#3A6EA5', '#6B7B3A'];
+    const cores = ['#FD984D', '#9C6510', '#2C7A57', '#7A4FA0', '#B04A4A', '#3A6EA5', '#6B7B3A'];
     const datasets = contas.map((k, i) => {
       const t = CONTAS[k].ofertaDestaque.totais;
       return { label: CONTA_NOME[k], data: ids.map(id => (t[id] && t[id][1] != null) ? +(t[id][1] * 100).toFixed(1) : null),
@@ -1471,7 +1471,7 @@ async function iniciarDashboard() {
       type: 'line', data: { labels: ids.map(id => DM(id) + ' a ' + DM(fimDe(id))), datasets },
       options: { ...baseGridOpts(), plugins: { legend: { labels: { boxWidth: 10, boxHeight: 10, font: { size: 11 } } },
         tooltip: { callbacks: { label: c => c.dataset.label + ': ' + (c.raw == null ? 'sem dado' : c.raw + '% perdidas') } } },
-        scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { min: 0, max: 100, grid: { color: '#EEF2F2' }, ticks: { font: { size: 10 }, callback: v => v + '%' } } } }
+        scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { min: 0, max: 100, grid: { color: '#F0ECE5' }, ticks: { font: { size: 10 }, callback: v => v + '%' } } } }
     });
 
     // ---- tabela
@@ -1607,7 +1607,7 @@ async function iniciarDashboard() {
     charts.semanas = new Chart(document.getElementById('chSemanas'), {
       type:'bar',
       data:{ labels: linhas.map(l => 'Sem ' + l.s.num),
-        datasets:[{ label:'Receita pedida', data: linhas.map(l => l.t.rev), backgroundColor:'#17868C', borderRadius:5 }] },
+        datasets:[{ label:'Receita pedida', data: linhas.map(l => l.t.rev), backgroundColor:'#FD984D', borderRadius:5 }] },
       options: { ...baseGridOpts(), plugins:{ legend:{display:false},
         tooltip:{ callbacks:{ title: items => { const s = linhas[items[0].dataIndex].s; return `Semana ${s.num} (${DM(s.ini)} a ${DM(s.fim)})`; },
                               label: ctx => MOEDA(ctx.raw) } } } }
@@ -1765,7 +1765,7 @@ async function iniciarDashboard() {
     charts[id] = new Chart(document.getElementById(canvasId), {
       type:'line',
       data:{ labels: horasDia, datasets:[
-        { label:'Hoje (' + DM(a.hoje) + ')', data: a.horaHoje.map((x, i) => i <= lim ? x[campo] : null), borderColor:'#17868C', backgroundColor:'#DCEEEF', fill:true, tension:.25, pointRadius:2 },
+        { label:'Hoje (' + DM(a.hoje) + ')', data: a.horaHoje.map((x, i) => i <= lim ? x[campo] : null), borderColor:'#FD984D', backgroundColor:'#FFEAD9', fill:true, tension:.25, pointRadius:2 },
         { label:'Ontem (' + DM(a.ontem) + ')', data: a.horaOntem.map(x => x[campo]), borderColor:'#9C6510', backgroundColor:'transparent', borderDash:[5,3], tension:.25, pointRadius:0 }
       ] },
       options: { ...baseGridOpts(), interaction:{ mode:'index', intersect:false },
@@ -1843,7 +1843,7 @@ async function iniciarDashboard() {
       data:{ labels: chaves.map(h => DM(diaBRT(h)) + ' ' + H2(horaBRT(h)) + 'h'),
         datasets:[{ label:'Estoque disponível (un)', data: chaves.map(h => a.serie[h]), borderColor:'#2C7A57', backgroundColor:'#DDEDE4', fill:true, tension:.25, pointRadius:1 }] },
       options: { ...baseGridOpts(), plugins:{ legend:{ display:false } },
-        scales:{ x:{ grid:{display:false}, ticks:{ font:{size:10}, maxTicksLimit:12 } }, y:{ grid:{color:'#EEF2F2'}, ticks:{ font:{size:10} } } } }
+        scales:{ x:{ grid:{display:false}, ticks:{ font:{size:10}, maxTicksLimit:12 } }, y:{ grid:{color:'#F0ECE5'}, ticks:{ font:{size:10} } } } }
     });
 
     const tb = document.querySelector('#tblTrEstoque tbody');
