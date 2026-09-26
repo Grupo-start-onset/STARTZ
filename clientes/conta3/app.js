@@ -4,6 +4,7 @@
      1. Formatadores e constantes
      2. Carregamento de dados + índices derivados (catálogo, meses, etc.)
      3. Estado global, filtros (conta em lista suspensa, período) e paginação de tabelas
+     3b. Logos dos clientes · 3c. Filtro de marca (funções puras no início do arquivo: MARCAS)
      4. Agregação por período (funções puras: state -> dados agregados)
      5. Diagnósticos (analise.diagnosticos, agregados entre contas)
      6. Catálogo de produtos (busca/ordenação)
@@ -20,7 +21,338 @@
    publicar_github.py), cai para o dados_vendor.json completo.
    ============================================================================ */
 
+/*MARCAS-INICIO*/
+/* ============================================================================
+   MARCAS: marca de cada produto e visão da conta filtrada por marca.
+   Funções puras (não tocam o DOM); o filtro "Marca" da tela usa estas funções.
+
+   De onde vem a marca de um produto (marcaDoAsin):
+     1. catalogo[asin].marca (marca cadastrada na Amazon), quando existir;
+     2. senão, o nome do produto, pelas regras de MARCAS_POR_NOME abaixo;
+     3. senão, "Outras marcas".
+   Conta sem regra e sem marca no catálogo não tem filtro (não aparece o seletor).
+   Para incluir marcas de outra conta: acrescente a conta em MARCAS_POR_NOME.
+
+   Como a visão por marca é calculada (vistaMarca): tudo que existe POR PRODUTO é somado
+   só para os produtos da marca. Conferido com os dados reais: a soma dos produtos
+   reproduz exatamente os totais da Amazon em vendas, tráfego e estoque; a margem (NPM) é a
+   média ponderada pela receita enviada. Três números NÃO existem por produto e viram estimativa:
+     - ruptura (OOS) mensal: média simples dos produtos da marca (a da conta vem da Amazon);
+     - estoque e margem/ruptura por semana: estoque = soma dos produtos; margem e ruptura
+       semanais ficam em branco;
+     - previsão mensal: proporcional à participação da marca na demanda prevista.
+   ============================================================================ */
+const MARCAS_POR_NOME = {
+  ozitp:  [['KastKing', /kast\s*king/i], ['Mar Negro', /mar\s*negro/i]],
+  conta3: [['Pet Clean', /pets?\s*clean|petclean/i], ['Papaya Pets', /papaya/i]]
+};
+const MARCA_OUTRAS = 'Outras marcas';
+
+const _cacheMarcas = new WeakMap();
+
+// todos os ASINs que aparecem em qualquer bloco da conta
+function universoAsins(c){
+  const s = new Set();
+  const add = o => { if (o) for (const a of Object.keys(o)) s.add(a); };
+  ['catalogo','vendas','estoque','trafego','margem','previsao','porAsinSem','sellin','custoMedio','repetidos','naoAtendidos','atrasados','abc']
+    .forEach(n => add(c[n]));
+  add(c.ofertaDestaque && c.ofertaDestaque.porAsin);
+  add(c.qualidade && c.qualidade.asins);
+  add(c.qualidadeListings && c.qualidadeListings.asins);
+  (c.nuncaComprados || []).forEach(a => s.add(a));
+  (c.pedidos || []).forEach(p => (p.itens || []).forEach(i => { if (i.asin) s.add(i.asin); }));
+  return s;
+}
+
+// marca de um produto (null = a conta não tem como separar marcas)
+function marcaDoAsin(k, c, asin){
+  const regras = MARCAS_POR_NOME[k];
+  const cat = (c.catalogo || {})[asin] || {};
+  const real = cat.marca ? String(cat.marca).trim() : '';
+  if (real) {
+    if (regras) for (const [nome, rx] of regras) if (rx.test(real)) return nome;   // "Mar Negro Fishing" -> "Mar Negro"
+    return real;
+  }
+  if (!regras) return null;
+  for (const [nome, rx] of regras) if (rx.test(cat.nome || '')) return nome;
+  return MARCA_OUTRAS;
+}
+
+// Map asin -> marca, para todos os produtos da conta (guardado por conta)
+function mapaMarcas(k, c){
+  let m = _cacheMarcas.get(c);
+  if (!m) { m = new Map(); for (const a of universoAsins(c)) m.set(a, marcaDoAsin(k, c, a)); _cacheMarcas.set(c, m); }
+  return m;
+}
+
+// marcas da conta, da maior receita para a menor; [] quando não há como filtrar (menos de 2 marcas)
+function marcasDaConta(k, c){
+  const info = {};
+  for (const [a, m] of mapaMarcas(k, c)) {
+    if (!m) continue;
+    const x = info[m] || (info[m] = { nome: m, asins: 0, receita: 0 });
+    x.asins++;
+    const vs = (c.vendas || {})[a];
+    if (vs) for (const mes of Object.keys(vs)) x.receita += vs[mes].orderedRevenue || 0;
+  }
+  const lista = Object.values(info).sort((p, q) => (q.receita - p.receita) || (q.asins - p.asins));
+  return lista.length >= 2 ? lista : [];
+}
+
+// a marca vem do cadastro da Amazon ou do nome do produto? (para o aviso na tela)
+function fonteDaMarca(c){
+  return Object.values(c.catalogo || {}).some(x => x && x.marca) ? 'amazon' : 'nome';
+}
+
+const _r2 = x => Math.round(x * 100) / 100;
+const _enxuto = _r2;
+
+const CAMPOS_VENDAS = ['orderedRevenue','orderedUnits','shippedRevenue','shippedUnits','customerReturns','shippedCogs'];
+
+// soma, por mês, os campos de um bloco {asin: {mes: {campo}}}
+function _somarMeses(porAsin, meses, campos){
+  const out = {};
+  meses.forEach(m => { const o = {}; campos.forEach(f => { o[f] = 0; }); out[m] = o; });
+  for (const a of Object.keys(porAsin)) {
+    const ms = porAsin[a];
+    for (const m of meses) { const x = ms[m]; if (x) for (const f of campos) out[m][f] += x[f] || 0; }
+  }
+  return out;
+}
+
+// totais de um PO a partir dos itens (mesma conta do transformar_vendor)
+function _totaisPO(its){
+  const soma = campo => _enxuto(its.reduce((s, i) => s + (i[campo] || 0), 0));
+  return {
+    itens: its.length, pedido: soma('pedido'), cancelado: soma('cancelado'), conf: soma('conf'),
+    confValido: soma('confValido'), rej: soma('rej'), recebido: soma('recebido'), pendente: soma('pendente'),
+    custoPedido: _enxuto(its.reduce((s, i) => s + (i.pedido || 0) * (i.custoUn || 0), 0)),
+    custo: _enxuto(its.reduce((s, i) => s + (i.confValido || 0) * (i.custoUn || 0), 0)),
+    custoRecebido: _enxuto(its.reduce((s, i) => s + (i.recebido || 0) * (i.custoUn || 0), 0))
+  };
+}
+
+// sell-in por mês, recebido por mês e markup a partir da lista de POs (mesma conta do transformar_vendor)
+function _recalcularSellin(pedidos){
+  const campos = ['pedido','cancelado','conf','confValido','rej','recebido','custo','custoRecebido','pendente'];
+  const novo = () => { const o = { pos: new Set() }; campos.forEach(f => { o[f] = 0; }); return o; };
+  const mes = {}, receb = {}, mk = {}, mkAll = [];
+  let totalPOs = 0;
+  for (const p of pedidos) {
+    if (p.status === 'SEM_STATUS') continue;
+    totalPOs++;
+    const dmes = (p.data || '').slice(0, 7);
+    for (const it of p.itens || []) {
+      const cu = it.custoUn || 0, lp = it.precoLista || 0;
+      const x = mes[dmes] || (mes[dmes] = novo());
+      x.pedido += it.pedido || 0; x.cancelado += it.cancelado || 0; x.conf += it.conf || 0;
+      x.confValido += it.confValido || 0; x.rej += it.rej || 0; x.recebido += it.recebido || 0;
+      x.custo += (it.confValido || 0) * cu; x.custoRecebido += (it.recebido || 0) * cu;
+      x.pendente += it.pendente || 0; x.pos.add(p.po);
+      if ((it.recebido || 0) > 0) {
+        const lrd = it.dataReceb || p.atualizado;
+        if (lrd) {
+          const y = receb[lrd.slice(0, 7)] || (receb[lrd.slice(0, 7)] = { recebido: 0, custoRecebido: 0, pos: new Set() });
+          y.recebido += it.recebido; y.custoRecebido += it.recebido * cu; y.pos.add(p.po);
+        }
+      }
+      if (cu > 0) { const r = (lp - cu) / cu; (mk[dmes] || (mk[dmes] = [])).push(r); mkAll.push(r); }
+    }
+  }
+  const sellinMes = {};
+  Object.keys(mes).filter(Boolean).sort().forEach(m => {
+    const o = {}; campos.forEach(f => { o[f] = _enxuto(mes[m][f]); }); o.pos = mes[m].pos.size; sellinMes[m] = o;
+  });
+  const sellinRecebidoMes = {};
+  Object.keys(receb).sort().forEach(m => {
+    sellinRecebidoMes[m] = { recebido: _enxuto(receb[m].recebido), custoRecebido: _enxuto(receb[m].custoRecebido), pos: receb[m].pos.size };
+  });
+  const markupMes = {};
+  Object.keys(mk).filter(Boolean).sort().forEach(m => { markupMes[m] = mk[m].reduce((s, v) => s + v, 0) / mk[m].length; });
+  return { sellinMes, sellinRecebidoMes, markupMes, markupGeral: mkAll.length ? mkAll.reduce((s, v) => s + v, 0) / mkAll.length : 0, totalPOs };
+}
+
+// Diagnósticos automáticos: porte do analisar() do transformar_vendor.py, usado para refazer o bloco
+// `analise` com os números da marca. Só o que o painel usa (diagnosticos e scatter) e os totais de apoio.
+function analisarConta(d){
+  const V = d.vendas || {}, E = d.estoque || {}, T = d.trafego || {}, M = d.margem || {};
+  const AV = d.aggVendas || {}, AE = d.aggEstoque || {}, AT = d.aggTrafego || {}, AM = d.aggMargem || {};
+  const meses = [...new Set([...Object.keys(AV), ...Object.keys(AE), ...Object.keys(AT), ...Object.keys(AM)])].sort();
+  const ult = [...meses].reverse().find(m => ((AV[m] || {}).orderedUnits || 0) > 0);
+  if (!ult) return null;
+
+  const tv = meses.reduce((s, m) => s + ((AT[m] || {}).glanceViews || 0), 0);
+  const tu = meses.reduce((s, m) => s + ((AV[m] || {}).orderedUnits || 0), 0);
+  const convGeral = tv > 0 ? tu / tv : 0;
+  const ticket = ((d.ticketMarkup || {})[ult] || {}).ticket || 0;
+  const npm = (AM[ult] || {}).npm;
+
+  const perfil = {};
+  for (const a of new Set([...Object.keys(V), ...Object.keys(E), ...Object.keys(T), ...Object.keys(M)])) {
+    const v = (V[a] || {})[ult] || {}, e = (E[a] || {})[ult] || {}, t = (T[a] || {})[ult] || {}, mg = (M[a] || {})[ult] || {};
+    const views = t.glanceViews || 0, ped = v.orderedUnits || 0;
+    perfil[a] = {
+      views, ped, rec: v.orderedRevenue || 0,
+      est: e.sellableUnits || 0, parado: e.unhealthyUnits || 0, a90: e.aged90Units || 0, giro: e.sellThrough || 0,
+      temInfoEst: !!e.temInfo, conv: views > 0 ? ped / views : null, npm: mg.npm == null ? null : mg.npm
+    };
+  }
+  const P = Object.entries(perfil);
+  const viewsLista = P.map(([, p]) => p.views).filter(x => x > 0).sort((x, y) => x - y);
+  const vMed = viewsLista.length ? viewsLista[Math.floor(viewsLista.length / 2)] : 0;
+  const soma = (l, f) => l.reduce((s, x) => s + x[f], 0);
+  const diags = [];
+
+  const perdidos = P.filter(([, p]) => p.views > 0 && p.temInfoEst && p.est === 0 && p.ped === 0)
+    .map(([a, p]) => ({ asin: a, views: p.views, un: p.views * convGeral, rs: p.views * convGeral * ticket })).sort((x, y) => y.rs - x.rs);
+  if (perdidos.length) diags.push({ tipo: 'perdidos', titulo: 'Ruptura em produtos com procura', impacto: soma(perdidos, 'rs'), qtd: perdidos.length,
+    explica: 'Produtos que tiveram visitas na página mas estavam sem estoque. A estimativa usa a taxa de conversão média da conta aplicada às visitas perdidas.',
+    acao: 'Cobrar reposição junto ao comprador da Amazon e revisar o ponto de pedido destes itens.', itens: perdidos.slice(0, 12) });
+
+  const baixa = P.filter(([, p]) => p.views >= Math.max(vMed, 10) && p.conv !== null && p.conv < convGeral * 0.5)
+    .map(([a, p]) => ({ asin: a, views: p.views, conv: p.conv, ped: p.ped, est: p.est, rs: (convGeral - p.conv) * p.views * ticket })).sort((x, y) => y.rs - x.rs);
+  if (baixa.length) diags.push({ tipo: 'conversao', titulo: 'Tráfego alto convertendo mal', impacto: soma(baixa, 'rs'), qtd: baixa.length,
+    explica: 'Produtos bem acima da mediana de visitas, mas com conversão menor que metade da média da conta. O valor é quanto renderiam se convertessem na média.',
+    acao: 'Revisar preço, imagens, título, bullets e avaliações. O cliente chega mas não compra.', itens: baixa.slice(0, 12) });
+
+  const parado = P.filter(([, p]) => p.parado > 0).map(([a, p]) => ({ asin: a, parado: p.parado, est: p.est, a90: p.a90, giro: p.giro })).sort((x, y) => y.parado - x.parado);
+  if (parado.length) diags.push({ tipo: 'parado', titulo: 'Capital imobilizado em estoque parado', impacto: (AE[ult] || {}).unhealthyCost || 0, qtd: parado.length,
+    explica: 'Estoque classificado pela Amazon como excedente frente à demanda prevista. É dinheiro que já saiu do seu caixa e não está girando.',
+    acao: 'Negociar promoção, ação de liquidação ou reduzir o próximo pedido destes itens.', itens: parado.slice(0, 12) });
+
+  let vaz = [];
+  if (npm) vaz = P.filter(([, p]) => p.npm !== null && p.rec > 0 && p.npm < npm * 0.7)
+    .map(([a, p]) => ({ asin: a, npm: p.npm, rec: p.rec, rs: p.rec * (npm - p.npm) })).sort((x, y) => y.rs - x.rs);
+  if (vaz.length) diags.push({ tipo: 'margem', titulo: 'Produtos puxando a margem para baixo', impacto: soma(vaz, 'rs'), qtd: vaz.length,
+    explica: `Produtos com margem líquida abaixo de 70% da média da conta (${(npm * 100).toFixed(1)}%). O valor é quanto a mais renderiam na margem média.`,
+    acao: 'Renegociar custo com a Amazon ou revisar o preço de tabela destes itens.', itens: vaz.slice(0, 12) });
+
+  const op = P.filter(([, p]) => p.conv !== null && p.conv > convGeral * 1.5 && p.views > 0 && p.views < vMed)
+    .map(([a, p]) => ({ asin: a, views: p.views, conv: p.conv, rec: p.rec, rs: (vMed - p.views) * p.conv * ticket })).sort((x, y) => y.rs - x.rs);
+  if (op.length) diags.push({ tipo: 'oportunidade', titulo: 'Produtos que convertem bem mas pouca gente vê', impacto: soma(op, 'rs'), qtd: op.length,
+    explica: 'Conversão acima de 1,5x a média com visitas abaixo da mediana. O valor estima o ganho se atingissem a visibilidade mediana.',
+    acao: 'Investir em mídia, cupom ou melhorar posicionamento de busca. Aqui o produto já provou que vende.', itens: op.slice(0, 12) });
+
+  diags.sort((x, y) => y.impacto - x.impacto);
+  const receitas = P.map(([, p]) => p.rec).filter(x => x > 0).sort((x, y) => y - x);
+  const tot = receitas.reduce((s, x) => s + x, 0) || 1;
+  return {
+    ultimoMes: ult, convGeral, ticket, npm, viewsMediana: vMed, diagnosticos: diags,
+    concentracao: { top5: receitas.slice(0, 5).reduce((s, x) => s + x, 0) / tot, nAsins: receitas.length },
+    scatter: P.filter(([, p]) => p.views > 0).map(([a, p]) => ({ a, x: p.views, y: _r2((p.conv || 0) * 100), r: _r2(p.rec) }))
+  };
+}
+
+// Visão da conta só com os produtos do conjunto S (Set de ASINs). `marca` é só o rótulo.
+function vistaPorAsins(c, S, marca){
+  const pick = o => { const r = {}; if (o) for (const a of Object.keys(o)) if (S.has(a)) r[a] = o[a]; return r; };
+  const v = Object.assign({}, c);
+  ['vendas','estoque','trafego','margem','custoMedio','previsao','porAsinSem','sellin','atrasados','repetidos','naoAtendidos','abc']
+    .forEach(n => { if (c[n]) v[n] = pick(c[n]); });
+  v.nuncaComprados = (c.nuncaComprados || []).filter(a => S.has(a));
+
+  // agregados mensais: soma dos produtos
+  const mV = Object.keys(c.aggVendas || {}), mE = Object.keys(c.aggEstoque || {}), mT = Object.keys(c.aggTrafego || {}), mM = Object.keys(c.aggMargem || {});
+  v.aggVendas = _somarMeses(v.vendas, mV, CAMPOS_VENDAS);
+  const tr = _somarMeses(v.trafego, mT, ['glanceViews']); v.aggTrafego = tr;
+  const est = _somarMeses(v.estoque, mE, ['sellableUnits','sellableCost','unhealthyCost','unhealthyUnits','openPO']);
+  mE.forEach(m => {
+    const oos = []; for (const a of Object.keys(v.estoque)) { const e = v.estoque[a][m]; if (e && e.temInfo && e.oosRate != null) oos.push(e.oosRate); }
+    est[m].oosRate = oos.length ? oos.reduce((s, x) => s + x, 0) / oos.length : null;   // estimativa (ver cabeçalho)
+  });
+  v.aggEstoque = est;
+  v.aggMargem = {};
+  mM.forEach(m => {
+    let num = 0, den = 0;
+    for (const a of Object.keys(v.margem)) {
+      const g = v.margem[a][m]; const sr = ((v.vendas[a] || {})[m] || {}).shippedRevenue || 0;
+      if (g && g.npm != null) { num += g.npm * sr; den += sr; }
+    }
+    v.aggMargem[m] = { npm: den > 0 ? num / den : null };
+  });
+  v.ticketMarkup = {};
+  mV.forEach(m => {
+    const ag = v.aggVendas[m];
+    v.ticketMarkup[m] = { ticket: ag.shippedUnits > 0 ? ag.shippedRevenue / ag.shippedUnits : 0,
+                          markupVarejo: ag.shippedCogs > 0 ? (ag.shippedRevenue - ag.shippedCogs) / ag.shippedCogs : 0 };
+  });
+
+  // previsão mensal: só existe por conta; proporcional à participação da marca na demanda prevista
+  const prevAll = Object.values(c.previsao || {}), prevS = Object.values(v.previsao || {});
+  const share = f => { const d = prevAll.reduce((s, x) => s + (x[f] || 0), 0); return d > 0 ? prevS.reduce((s, x) => s + (x[f] || 0), 0) / d : 0; };
+  const valor = o => Object.keys(o).reduce((s, a) => s + ((o[a].mean || 0) * ((c.custoMedio || {})[a] || 0)), 0);
+  const shV = valor(c.previsao || {}) > 0 ? valor(v.previsao || {}) / valor(c.previsao || {}) : 0;
+  v.previsaoMes = {};
+  for (const m of Object.keys(c.previsaoMes || {})) {
+    const o = c.previsaoMes[m];
+    v.previsaoMes[m] = { mean: (o.mean || 0) * share('mean'), p70: (o.p70 || 0) * share('p70'), p80: (o.p80 || 0) * share('p80'), p90: (o.p90 || 0) * share('p90'), valor: (o.valor || 0) * shV };
+  }
+
+  // sell-in: refeito a partir dos POs (só os itens da marca)
+  v.pedidos = (c.pedidos || []).map(p => {
+    const its = (p.itens || []).filter(i => S.has(i.asin));
+    if (!its.length) return null;
+    const atras = its.some(i => i.atrasado);
+    return Object.assign({}, p, { itens: its, tot: _totaisPO(its), atrasado: atras, diasAtraso: atras ? p.diasAtraso : 0 });
+  }).filter(Boolean);
+  Object.assign(v, _recalcularSellin(v.pedidos));
+
+  // semanas: receita, unidades e visitas por produto; estoque semanal = soma dos produtos;
+  // margem e ruptura semanais não existem por produto
+  v.aggSem = {};
+  for (const w of Object.keys(c.aggSem || {})) {
+    let r = 0, u = 0, vw = 0, e = 0;
+    for (const a of Object.keys(v.porAsinSem)) { const x = v.porAsinSem[a][w]; if (x) { r += x.r || 0; u += x.u || 0; vw += x.v || 0; e += x.e || 0; } }
+    v.aggSem[w] = { orderedRevenue: r, orderedUnits: u, glanceViews: vw, sellableUnits: e };
+  }
+
+  // oferta em destaque: totais refeitos a partir dos produtos (mesma conta do painel)
+  if (c.ofertaDestaque) {
+    const od = c.ofertaDestaque, porAsin = pick(od.porAsin), totais = {};
+    for (const s of od.semanas || []) {
+      let gv = 0, tot = 0;
+      for (const a of Object.keys(porAsin)) { const x = porAsin[a][s.id]; if (x && x[0] != null && x[1] != null && x[1] < 1) { gv += x[0]; tot += x[0] / (1 - x[1]); } }
+      totais[s.id] = tot > 0 ? [gv, 1 - gv / tot] : [0, null];
+    }
+    v.ofertaDestaque = Object.assign({}, od, { porAsin, totais });
+  }
+
+  // qualidade e listings
+  if (c.qualidade) v.qualidade = Object.assign({}, c.qualidade, { asins: pick(c.qualidade.asins) });
+  if (c.qualidadeListings) {
+    const ql = c.qualidadeListings, asins = pick(ql.asins), lista = Object.values(asins), total = lista.length;
+    const saud = lista.filter(a => !(a.qtdErros > 0) && !(a.qtdAvisos > 0)).length;
+    v.qualidadeListings = {
+      asins, listaSuprimidos: (ql.listaSuprimidos || []).filter(a => S.has(a)),
+      resumo: { totalAsins: total, suprimidos: (ql.listaSuprimidos || []).filter(a => S.has(a)).length,
+                comErro: lista.filter(a => a.qtdErros > 0).length, comAviso: lista.filter(a => a.qtdAvisos > 0).length,
+                saudaveis: saud, pctSaudaveis: total ? Math.round(1000 * saud / total) / 10 : 0 }
+    };
+  }
+
+  // Brand Analytics (recompra, cesta, termos): só linhas de produtos da marca
+  const ex = c.extras || {};
+  v.extras = Object.assign({}, ex, {
+    cestaCompras: (ex.cestaCompras || []).filter(i => S.has(i.asin)),
+    termosBusca: (ex.termosBusca || []).filter(i => i.asin && S.has(i.asin)),
+    recompra: (ex.recompra || []).filter(r => S.has(r.asin))
+  });
+
+  const an = analisarConta(v);
+  if (an) v.analise = an; else delete v.analise;
+  v._marca = { nome: marca, asins: S.size, fonte: fonteDaMarca(c) };
+  return v;
+}
+
+function vistaMarca(k, c, marca){
+  const S = new Set();
+  for (const [a, m] of mapaMarcas(k, c)) if (m === marca) S.add(a);
+  return vistaPorAsins(c, S, marca);
+}
+/*MARCAS-FIM*/
+
 let CONTAS = null;
+let RAW = {};      // dados originais por conta; CONTAS[k] vira a visão da marca quando há filtro de marca
 let INDICE = null; // índice do modo por conta: { geradoEm, contas: { <id>: {nome, meses, futuros, sellin, pedidos} } }
 
 async function iniciarDashboard() {
@@ -36,6 +368,7 @@ async function iniciarDashboard() {
     const resp = await fetch('dados_vendor.json');
     if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ao buscar dados_vendor.json');
     CONTAS = await resp.json();
+    RAW = Object.assign({}, CONTAS);
   }
 
   /* ------------------------------------------------------------------------
@@ -127,6 +460,7 @@ async function iniciarDashboard() {
         const r = await fetch('dados/' + k + '.json');
         if (!r.ok) throw new Error('HTTP ' + r.status + ' ao buscar dados/' + k + '.json');
         CONTAS[k] = await r.json();
+        RAW[k] = CONTAS[k];
       }));
     } catch (e) {
       console.error(e);
@@ -170,7 +504,8 @@ async function iniciarDashboard() {
     pedAbertos: new Set(),
     lim: {},
     pagina: 'inicio',
-    trTab: 'vendas'
+    trTab: 'vendas',
+    marca: ''
   };
 
   // ---- paginação de tabelas: mostra LIM_PASSO linhas e um botão "Mostrar mais" ----
@@ -207,6 +542,8 @@ async function iniciarDashboard() {
     if (!ok) { selConta.value = contaSelecionada; return; }
     contaSelecionada = escolha;
     state.contas = alvo;
+    state.marca = '';
+    atualizarMarcas();
     try { localStorage.setItem(CHAVE_CONTA, escolha); } catch (e) {}
     renderLogos();
     resetLim();
@@ -312,13 +649,15 @@ async function iniciarDashboard() {
      Arquivos em assets/logos/. Para incluir uma conta ou trocar um logo: edite LOGOS.
        a = arquivo · alt = nome da marca · h = altura máxima em px no cartão
        legenda = texto sob o logo (só quando o arquivo traz apenas o símbolo da marca)
+       m = nome da marca (igual ao do filtro Marca); com a marca escolhida, só o logo dela aparece.
+           Logo sem `m` é do grupo (ex.: Grupo Orba) e aparece nas marcas que não têm logo próprio
      ------------------------------------------------------------------------ */
   const ASSET_BASE = location.pathname.includes('/clientes/') ? '../../assets/' : 'assets/';
   const LOGOS = {
     alfa_jf:   [{ a:'treeliss.png',  alt:'Treeliss Profissional', h:40 }],
     blidshop:  [{ a:'blidshop.png',  alt:'Blid Shop',             h:68, legenda:'Blid Shop' }],
-    conta3:    [{ a:'orba.png',      alt:'Grupo Orba',            h:52 }, { a:'petclean.png', alt:'Pet Clean', h:50 }],
-    ozitp:     [{ a:'kastking.png',  alt:'KastKing',              h:56 }, { a:'marnegro.png', alt:'Mar Negro', h:32 }],
+    conta3:    [{ a:'orba.png',      alt:'Grupo Orba',            h:52 }, { a:'petclean.png', alt:'Pet Clean', h:50, m:'Pet Clean' }],
+    ozitp:     [{ a:'kastking.png',  alt:'KastKing',              h:56, m:'KastKing' }, { a:'marnegro.png', alt:'Mar Negro', h:32, m:'Mar Negro' }],
     jolitex:   [{ a:'jolitex.png',   alt:'Jolitex Ternille',      h:46 }],
     balboa:    [{ a:'ligga.png',     alt:'Ligga Sports',          h:22 }],
     riomaster: [{ a:'riomaster.png', alt:'Rio Master',            h:30 }]
@@ -328,7 +667,11 @@ async function iniciarDashboard() {
 
   function renderLogos(){
     const k = state.contas.length === 1 ? state.contas[0] : null;
-    const lista = (k && LOGOS[k]) || [];
+    let lista = (k && LOGOS[k]) || [];
+    if (state.marca) {   // logo da marca; sem logo próprio, só o do grupo (entradas sem `m`); sem nenhum, todos
+      const so = lista.filter(l => l.m === state.marca), grupo = lista.filter(l => !l.m);
+      lista = so.length ? so : (grupo.length ? grupo : lista);
+    }
     const html = lista.map(l => `<figure class="cl-logo" style="--h:${l.h}px">
       <img src="${esc(logoSrc(l.a))}" alt="${esc(l.alt)}" title="${esc(l.alt)}" decoding="async">
       ${l.legenda ? `<figcaption>${esc(l.legenda)}</figcaption>` : ''}</figure>`).join('');
@@ -336,6 +679,49 @@ async function iniciarDashboard() {
     if (card) { card.hidden = !lista.length; document.getElementById('clientLogos').innerHTML = html; }
     if (mini) { mini.hidden = !lista.length; mini.innerHTML = html; }
   }
+
+  /* ------------------------------------------------------------------------
+     3c. FILTRO DE MARCA
+     Só aparece com uma conta escolhida e quando ela tem 2 marcas ou mais (regras e cálculo no
+     bloco MARCAS, no início do arquivo). Ao escolher uma marca, CONTAS[k] passa a ser a visão da
+     conta só com os produtos da marca, e o painel inteiro se refaz com ela; RAW guarda o original.
+     ------------------------------------------------------------------------ */
+  const selMarca = document.getElementById('selMarca');
+  const fgMarca = document.getElementById('fgMarca');
+  const marcaNota = document.getElementById('marcaNota');
+  const vistaMemo = {};
+
+  function marcasDisponiveis(){
+    const k = state.contas.length === 1 ? state.contas[0] : null;
+    return k && RAW[k] ? marcasDaConta(k, RAW[k]) : [];
+  }
+  function aplicarMarca(){
+    Object.keys(RAW).forEach(k => { CONTAS[k] = RAW[k]; });
+    if (state.marca && state.contas.length === 1) {
+      const k = state.contas[0], chave = k + '|' + state.marca;
+      CONTAS[k] = vistaMemo[chave] || (vistaMemo[chave] = vistaMarca(k, RAW[k], state.marca));
+    }
+  }
+  function notaMarca(){
+    if (!marcaNota) return;
+    if (!state.marca) { marcaNota.hidden = true; return; }
+    const v = CONTAS[state.contas[0]]._marca || {};
+    marcaNota.hidden = false;
+    marcaNota.innerHTML = 'Mostrando só a marca <b>' + esc(state.marca) + '</b> (' + NUM(v.asins) + ' produtos; ' +
+      (v.fonte === 'amazon' ? 'marca cadastrada na Amazon' : 'marca identificada pelo nome do produto') + '). ' +
+      'Ruptura e estoque semanal são estimativas feitas a partir dos produtos da marca, margem e ruptura por semana não aparecem, ' +
+      'e a projeção mensal da previsão é proporcional à participação da marca.';
+  }
+  function atualizarMarcas(){
+    if (!selMarca || !fgMarca) return;
+    const lista = marcasDisponiveis();
+    if (!lista.some(m => m.nome === state.marca)) state.marca = '';
+    fgMarca.hidden = !lista.length;
+    selMarca.innerHTML = '<option value="">Todas as marcas</option>' + lista.map(m => `<option value="${esc(m.nome)}">${esc(m.nome)}</option>`).join('');
+    selMarca.value = state.marca;
+    aplicarMarca(); notaMarca();
+  }
+  if (selMarca) selMarca.onchange = () => { state.marca = selMarca.value; aplicarMarca(); notaMarca(); renderLogos(); resetLim(); renderPagina(); };
 
   /* ------------------------------------------------------------------------
      4. AGREGAÇÃO POR PERÍODO
@@ -1707,6 +2093,13 @@ async function iniciarDashboard() {
   }
 
   // agrega as contas selecionadas que têm arquivo; null se não há nada
+  // marca de um produto na conta k (usa o dado original da conta); sem filtro de marca, todos passam
+  function noFiltroMarca(k, asin){
+    if (!state.marca) return true;
+    const c = RAW[k]; if (!c) return false;
+    const mapa = mapaMarcas(k, c);
+    return (mapa.has(asin) ? mapa.get(asin) : marcaDoAsin(k, c, asin)) === state.marca;
+  }
   function trAgregar(){
     const contas = state.contas.filter(k => TR[k]);
     if (!contas.length) return null;
@@ -1714,7 +2107,7 @@ async function iniciarDashboard() {
     let ultima = '', atualizado = '';
     contas.forEach(k => {
       const d = TR[k];
-      (d.horas || []).forEach(x => horas.push({ k, asin:x.asin, h:x.h, u:x.u || 0, r:x.r || 0, v:x.v || 0, temV: x.v != null }));
+      (d.horas || []).forEach(x => { if (noFiltroMarca(k, x.asin)) horas.push({ k, asin:x.asin, h:x.h, u:x.u || 0, r:x.r || 0, v:x.v || 0, temV: x.v != null }); });
       if ((d.ultima_hora || '') > ultima) ultima = d.ultima_hora;
       if ((d.atualizado_em || '') > atualizado) atualizado = d.atualizado_em;
       if ((d.falhas || []).length) falhas.push(CONTA_NOME[k] + ': ' + d.falhas.join(', '));
@@ -1752,11 +2145,12 @@ async function iniciarDashboard() {
     contas.forEach(k => {
       const e = TR[k].estoque;
       if (e && e.itens) Object.keys(e.itens).forEach(asin => {
+        if (!noFiltroMarca(k, asin)) return;
         const q = e.itens[asin] || 0;
         estMap[k + '|' + asin] = q; estAgora += q;
         if (q > 0) comEst++; else semEst++;
       });
-      Object.keys(TR[k].estoque_total || {}).forEach(h => { serie[h] = (serie[h] || 0) + TR[k].estoque_total[h]; });
+      if (!state.marca) Object.keys(TR[k].estoque_total || {}).forEach(h => { serie[h] = (serie[h] || 0) + TR[k].estoque_total[h]; });   // a série por hora só existe para a conta inteira
     });
     return { contas, ultima, ultimaV, ateV, totV, atualizado, hoje, ate, ontem, horaHoje, horaOntem, tot, porAsin, estAgora, comEst, semEst, estMap, serie, falhas };
   }
@@ -1871,8 +2265,15 @@ async function iniciarDashboard() {
       kpiHTML('Cobertura geral', u24 > 0 ? COB(a.estAgora / (u24 / 24)) : '—', 'estoque ÷ venda média por hora (24h)');
 
     const chaves = Object.keys(a.serie).sort();
+    const boxEst = document.getElementById('trBoxEstoque'), dscEst = document.getElementById('trDescEstoque');
+    if (boxEst && dscEst) {
+      boxEst.style.display = state.marca ? 'none' : '';
+      dscEst.textContent = state.marca
+        ? 'A série por hora existe só para a conta inteira. Com uma marca escolhida, valem os números atuais e a tabela de risco abaixo.'
+        : 'Soma das unidades disponíveis para venda no site, contas selecionadas (últimas 72h)';
+    }
     destroyChart('trEstoque');
-    charts.trEstoque = new Chart(document.getElementById('chTrEstoque'), {
+    if (!state.marca) charts.trEstoque = new Chart(document.getElementById('chTrEstoque'), {
       type:'line',
       data:{ labels: chaves.map(h => DM(diaBRT(h)) + ' ' + H2(horaBRT(h)) + 'h'),
         datasets:[{ label:'Estoque disponível (un)', data: chaves.map(h => a.serie[h]), borderColor:'#2C7A57', backgroundColor:'#DDEDE4', fill:true, tension:.25, pointRadius:1 }] },
@@ -2330,6 +2731,7 @@ async function iniciarDashboard() {
       ['Grupo START — Inteligência Vendor Central'],
       ['Período', MESLABEL(state.de)+' a '+MESLABEL(state.ate)],
       ['Contas incluídas', state.contas.map(k=>CONTA_NOME[k]).join(', ')],
+      ['Marca', state.marca || 'Todas'],
       [],
       ['Faturamento (ordered)', tot.shippedRevenue],
       ['Unidades pedidas', tot.shippedUnits],
@@ -2590,6 +2992,7 @@ async function iniciarDashboard() {
   }
   if (!(await carregarContas(state.contas, ++reqId))) return; // mensagem de erro já está na tela
   document.getElementById('loading').hidden = true;
+  atualizarMarcas();
   renderLogos();
   irPara(paginaDoHash());
 }

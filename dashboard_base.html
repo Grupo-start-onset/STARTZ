@@ -73,6 +73,10 @@
           <span class="flabel">Conta</span>
           <select id="selConta"></select>
         </div>
+        <div class="fgroup" id="fgMarca" hidden>
+          <span class="flabel">Marca</span>
+          <select id="selMarca"></select>
+        </div>
         <div class="fgroup" id="fgDe">
           <span class="flabel">Período — de</span>
           <select id="selDe"></select>
@@ -93,6 +97,8 @@
     </header>
 
     <div class="wrap">
+
+      <div class="marcanota" id="marcaNota" hidden></div>
 
       <div class="loading" id="loading">Carregando dados…</div>
 
@@ -457,8 +463,8 @@
             <div class="tabpanel" id="trPanEstoque">
               <div class="kpis" id="trKpiEstoque" style="margin-bottom:16px"></div>
               <h3>Estoque disponível por hora</h3>
-              <p class="desc">Soma das unidades disponíveis para venda no site, contas selecionadas (últimas 72h)</p>
-              <div class="chartbox"><canvas id="chTrEstoque"></canvas></div>
+              <p class="desc" id="trDescEstoque">Soma das unidades disponíveis para venda no site, contas selecionadas (últimas 72h)</p>
+              <div class="chartbox" id="trBoxEstoque"><canvas id="chTrEstoque"></canvas></div>
               <h3 style="margin-top:20px">Risco de ruptura</h3>
               <p class="desc">Produtos que venderam nas últimas 24h, do mais crítico ao menos. Cobertura = estoque disponível ÷ venda média por hora das últimas 24h</p>
               <div class="tbl-wrap" style="max-height:420px">
