@@ -973,8 +973,8 @@ async function iniciarDashboard() {
     //   (totalPOs cobre o arquivo inteiro e não serve para período).
     const noPeriodo = m => m >= state.de && m <= state.ate;
     const mesesSell = SELLIN_MONTHS.filter(noPeriodo);
-    const sellinPorMes = {}, sellOutPorMes = {}, recPoPorMes = {};   // recPoPorMes: custo recebido dos POs, no mês de CRIAÇÃO do PO
-    mesesSell.forEach(m => { sellinPorMes[m] = 0; sellOutPorMes[m] = 0; recPoPorMes[m] = 0; });
+    const sellinPorMes = {}, sellOutPorMes = {}, recPoPorMes = {}, recPoJaRecebido = {};   // recPoPorMes: valor TOTAL (confirmado) dos POs que já receberam algo, no mês de CRIAÇÃO do PO; recPoJaRecebido: quanto disso já foi recebido
+    mesesSell.forEach(m => { sellinPorMes[m] = 0; sellOutPorMes[m] = 0; recPoPorMes[m] = 0; recPoJaRecebido[m] = 0; });
 
     let totPOs = 0, totConf = 0, totRej = 0, totRec = 0;
     const linhasConta = [];
@@ -989,7 +989,6 @@ async function iniciarDashboard() {
       let posConta = 0, confConta = 0, rejConta = 0, recConta = 0;
       Object.keys(sm).forEach(m => {
         if (!noPeriodo(m)) return;
-        recPoPorMes[m] += sm[m].custoRecebido || 0;
         posConta += sm[m].pos || 0;
         confConta += sm[m].conf || 0;
         rejConta += sm[m].rej || 0;
@@ -997,6 +996,12 @@ async function iniciarDashboard() {
       });
       totPOs += posConta; totConf += confConta; totRej += rejConta; totRec += recConta;
       linhasConta.push({ k, pos:posConta, conf:confConta, rej:rejConta, rec:recConta });
+
+      (c.pedidos || []).forEach(po => {
+        const m = (po.data || '').slice(0, 7), t = po.tot || {};
+        if (recPoPorMes[m] == null || !(t.recebido > 0)) return;
+        recPoPorMes[m] += t.custo || 0; recPoJaRecebido[m] += t.custoRecebido || 0;
+      });
 
       const vendas = c.vendas || {};
       Object.keys(vendas).forEach(asin => {
@@ -1017,10 +1022,13 @@ async function iniciarDashboard() {
         data:{ labels: mesesSell.map(MESLABEL),
           datasets:[
             {label:'Sell-in (recebido, custo)', data: mesesSell.map(m=>sellinPorMes[m]), backgroundColor:'#17868C', borderRadius:4},
-            {label:'Recebido em POs (custo, pelo mês do PO)', data: mesesSell.map(m=>recPoPorMes[m]), backgroundColor:'#2C7A57', borderRadius:4},
+            {label:'POs recebidas (valor total, pelo mês do PO)', data: mesesSell.map(m=>recPoPorMes[m]), backgroundColor:'#2C7A57', borderRadius:4},
             {label:'Sell-out (venda, custo)', data: mesesSell.map(m=>sellOutPorMes[m]), backgroundColor:'#9C6510', borderRadius:4}
           ] },
-        options: baseGridOpts()
+        options: { ...baseGridOpts(), plugins: { ...(baseGridOpts().plugins || {}), tooltip: { callbacks: {
+          label: c => c.dataset.label + ': ' + MOEDA2(c.raw),
+          afterLabel: c => c.datasetIndex === 1 ? ['Já recebido: ' + MOEDA2(recPoJaRecebido[mesesSell[c.dataIndex]]), 'A receber: ' + MOEDA2(c.raw - recPoJaRecebido[mesesSell[c.dataIndex]])] : []
+        } } } }
       });
     }
 
