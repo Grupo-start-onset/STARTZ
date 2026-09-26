@@ -195,3 +195,6 @@ table.tbl{width:100%;border-collapse:collapse;font-size:.82rem}
 .trstatus.warn{background:var(--warnS);color:var(--warn);border-radius:8px;padding:9px 12px}
 .trstatus code{background:#EEF2F2;border-radius:4px;padding:1px 5px;font-size:.74rem}
 .kpi .hint span{font-weight:700}
+
+.tbl .asincode a{color:inherit;text-decoration:none;border-bottom:1px dotted var(--muted)}
+.tbl .asincode a:hover{color:var(--teal,#17868C);border-bottom-color:currentColor}

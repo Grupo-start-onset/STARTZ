@@ -50,6 +50,8 @@ async function iniciarDashboard() {
   const DIAS   = v => (v==null||isNaN(v)||!isFinite(v)) ? '—' : NUM(v)+' d';
   const MESLABEL = m => { const [y,mo]=m.split('-'); const nomes=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']; return nomes[parseInt(mo,10)-1]+'/'+y.slice(2); };
   const esc = s => (s==null ? '' : String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // link do ASIN para a página do produto na Amazon Brasil (abre em nova aba)
+  const linkAsin = a => a ? `<a href="https://www.amazon.com.br/dp/${encodeURIComponent(a)}" target="_blank" rel="noopener noreferrer" title="Abrir na Amazon">${esc(a)}</a>` : '';
 
   const PALETTE = ['#17868C','#9C6510','#2C7A57','#A32E2A','#5F7378','#0D2B34'];
   const LIM_PASSO = 100; // linhas mostradas por vez nas tabelas grandes (botão "Mostrar mais")
@@ -449,7 +451,7 @@ async function iniciarDashboard() {
         return `<tr>
           <td><div class="prodcell">
             ${info.imagem ? `<img class="thumb" src="${esc(info.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
-            <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${esc(it.asin)} · <span class="contatag" style="margin:0">${esc(CONTA_NOME[it.contaKey])}</span></div></div>
+            <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${linkAsin(it.asin)} · <span class="contatag" style="margin:0">${esc(CONTA_NOME[it.contaKey])}</span></div></div>
           </div></td>
           ${cellsCols}
         </tr>`;
@@ -531,7 +533,7 @@ async function iniciarDashboard() {
     tbody.innerHTML = tbodyHTML('catalogo', linhas, 6, l => `<tr>
       <td><div class="prodcell">
         ${l.imagem ? `<img class="thumb" src="${esc(l.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
-        <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></div>
+        <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${linkAsin(l.asin)}</div></div>
       </div></td>
       <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
       <td>${bsrHTML(l.bsr)}</td>
@@ -661,7 +663,7 @@ async function iniciarDashboard() {
     else tbAlerta.innerHTML = tbodyHTML('qualAlerta', alertas, 5, a => `<tr>
       <td><div class="prodcell">
         ${a.imagem ? `<img class="thumb" src="${esc(a.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
-        <div><div class="prodname">${esc(a.nome)}</div><div class="asincode">${esc(a.asin)}</div></div>
+        <div><div class="prodname">${esc(a.nome)}</div><div class="asincode">${linkAsin(a.asin)}</div></div>
       </div></td>
       <td><span class="tag muted">${esc(CONTA_NOME[a.contaKey])}</span></td>
       <td>${a.compsD.map(ck => `<span class="tag bad" style="margin-right:3px">${esc(COMP_LABEL[ck] || ck)}</span>`).join('')}</td>
@@ -694,7 +696,7 @@ async function iniciarDashboard() {
     tbody.innerHTML = tbodyHTML('qualidade', linhas, 10, l => `<tr>
       <td><div class="prodcell">
         ${l.imagem ? `<img class="thumb" src="${esc(l.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
-        <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></div>
+        <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${linkAsin(l.asin)}</div></div>
       </div></td>
       <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
       <td class="num">${NUM2(l.score)}</td>
@@ -770,7 +772,7 @@ async function iniciarDashboard() {
   function celulaProdutoListing(l){
     return `<td><div class="prodcell">
       ${l.imagem ? `<img class="thumb" src="${esc(l.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
-      <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></div>
+      <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${linkAsin(l.asin)}</div></div>
     </div></td>`;
   }
 
@@ -1104,7 +1106,7 @@ async function iniciarDashboard() {
           const info = catalogInfo(p.k, i.asin);
           return `<tr>
             <td><div class="prodcell">${info.imagem ? `<img class="thumb" src="${esc(info.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
-              <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${esc(i.asin)}${i.ean ? ' · EAN ' + esc(i.ean) : ''}</div></div></div></td>
+              <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${linkAsin(i.asin)}${i.ean ? ' · EAN ' + esc(i.ean) : ''}</div></div></div></td>
             <td class="num">${NUM(i.pedido)}</td><td class="num">${NUM(i.cancelado)}</td><td class="num">${NUM(i.conf)}</td>
             <td class="num">${NUM(i.rej)}</td><td class="num">${NUM(i.recebido)}</td>
             <td>${statusItemTag(i)}</td><td>${DATA_BR(i.dataReceb)}</td>
@@ -1202,7 +1204,7 @@ async function iniciarDashboard() {
     const tbody = document.querySelector('#tblPrevisaoTop tbody');
     if (!linhas.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty">Sem previsão disponível.</td></tr>'; }
     else tbody.innerHTML = linhas.slice(0,8).map(l => `<tr>
-      <td><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)} · ${esc(CONTA_NOME[l.contaKey])}</div></td>
+      <td><div class="prodname">${esc(l.nome)}</div><div class="asincode">${linkAsin(l.asin)} · ${esc(CONTA_NOME[l.contaKey])}</div></td>
       <td class="num">${NUM2(l.mean)}</td><td class="num">${NUM2(l.p90)}</td>
     </tr>`).join('');
   }
@@ -1300,7 +1302,7 @@ async function iniciarDashboard() {
       const info = catalogInfo(a.contaKey, a.asin);
       return `<tr><td>${a.rank}</td>
         <td><div class="prodcell">${info.imagem?`<img class="thumb" src="${esc(info.imagem)}" loading="lazy" alt="">`:'<div class="thumb"></div>'}
-        <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${esc(a.asin)}</div></div></div></td>
+        <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${linkAsin(a.asin)}</div></div></div></td>
         <td>${esc(a.contas)}</td><td class="num">${MOEDA2(a.rev)}</td><td class="num">${PCT(a.cumPct)}</td></tr>`;
     }).join('');
   }
@@ -1325,7 +1327,7 @@ async function iniciarDashboard() {
     const tbRec = document.querySelector('#tblRecompra tbody');
     if (!linhasRec.length) renderEmptyRow(tbRec, 6, 'Sem dados de recompra/pedidos não atendidos para as contas selecionadas.');
     else tbRec.innerHTML = tbodyHTML('recompra', linhasRec.sort((a,b)=> (b.receitaRec||0)-(a.receitaRec||0) || b.rec-a.rec), 6, l => `<tr>
-      <td><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></td>
+      <td><div class="prodname">${esc(l.nome)}</div><div class="asincode">${linkAsin(l.asin)}</div></td>
       <td><span class="tag muted">${esc(CONTA_NOME[l.contaKey])}</span></td>
       <td class="num">${NUM(l.rec)}</td><td class="num">${NUM(l.na)}</td>
       <td class="num">${l.pctRec == null ? '—' : PCT(l.pctRec)}</td><td class="num">${l.receitaRec == null ? '—' : MOEDA2(l.receitaRec)}</td>
@@ -1361,7 +1363,7 @@ async function iniciarDashboard() {
     const tbTermos = document.querySelector('#tblTermos tbody');
     if (!linhasTermos.length) renderEmptyRow(tbTermos, 6, 'Sem dados de termos de busca capturados ainda.');
     else tbTermos.innerHTML = tbodyHTML('termos', linhasTermos, 6, l => `<tr><td>${esc(l.termo)}</td>
-      <td><div class="prodname">${esc(l.nome || l.asin || '')}</div>${l.asin ? `<div class="asincode">${esc(l.asin)}</div>` : ''}</td>
+      <td><div class="prodname">${esc(l.nome || l.asin || '')}</div>${l.asin ? `<div class="asincode">${linkAsin(l.asin)}</div>` : ''}</td>
       <td>${esc(CONTA_NOME[l.contaKey])}</td><td class="num">${l.freq == null ? '—' : NUM(l.freq)}</td>
       <td class="num">${l.click == null ? '—' : PCT(l.click)}</td><td class="num">${l.conv == null ? '—' : PCT(l.conv)}</td></tr>`);
 
@@ -1622,7 +1624,7 @@ async function iniciarDashboard() {
     else tb.innerHTML = tbodyHTML('semTop', prod, 7, l => `<tr>
       <td><div class="prodcell">
         ${l.imagem ? `<img class="thumb" src="${esc(l.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
-        <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${esc(l.asin)}</div></div>
+        <div><div class="prodname">${esc(l.nome)}</div><div class="asincode">${linkAsin(l.asin)}</div></div>
       </div></td>
       <td><span class="tag muted">${esc(CONTA_NOME[l.k])}</span></td>
       <td class="num">${MOEDA2(l.r)}</td><td class="num">${NUM(l.u)}</td><td class="num">${NUM(l.v)}</td>
@@ -1741,7 +1743,7 @@ async function iniciarDashboard() {
     const info = catalogInfo(k, asin);
     return `<td><div class="prodcell">
       ${info.imagem ? `<img class="thumb" src="${esc(info.imagem)}" loading="lazy" alt="">` : '<div class="thumb"></div>'}
-      <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${esc(asin)}</div></div>
+      <div><div class="prodname">${esc(info.nome)}</div><div class="asincode">${linkAsin(asin)}</div></div>
     </div></td><td><span class="tag muted">${esc(CONTA_NOME[k])}</span></td>`;
   };
 
