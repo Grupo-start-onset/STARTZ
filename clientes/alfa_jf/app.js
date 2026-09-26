@@ -1882,6 +1882,9 @@ async function iniciarDashboard() {
   const ALR_QUEDA_CONV     = 0.30;   // queda de 30% ou mais na conversão
   const ALR_MIN_VISITAS    = 30;     // visitas mínimas nas duas semanas para a conversão contar
   const ALR_MIN_UN_ANT     = 3;      // unidades mínimas na semana anterior
+  const ALR_PRECO_VAR      = 0.10;   // preço médio pedido variou 10% ou mais (para cima ou para baixo)
+  const ALR_PRECO_CRIT     = 0.25;   // 25% ou mais = crítico
+  const ALR_MIN_UN_PRECO   = 3;      // unidades mínimas nas duas semanas para o preço contar
   const ALR_COB_DIAS       = 15;     // cobertura abaixo disso = alerta
   const ALR_COB_CRIT       = 7;      // cobertura abaixo disso (ou zero) = crítico
   const ALR_MIN_UN_COB     = 3;      // unidades vendidas na semana para calcular cobertura
@@ -1889,6 +1892,7 @@ async function iniciarDashboard() {
     destaque: 'Oferta em destaque perdida',
     vendas:   'Queda de vendas',
     conversao:'Queda de conversão',
+    preco:    'Variação de preço',
     cobertura:'Cobertura baixa',
     listing:  'Listing com problema'
   };
@@ -1934,6 +1938,13 @@ async function iniciarDashboard() {
             add('conversao', 1, k, asin, 'Conversão ' + PCT(cb) + ' → ' + PCT(ca) + ' com ' + NUM(va) + ' visitas', ticket == null ? null : (cb - ca) * va * ticket);
           }
         }
+        if (ant && ra > 0 && rb > 0 && ua >= ALR_MIN_UN_PRECO && ub >= ALR_MIN_UN_PRECO) {
+          const pa = ra / ua, pb = rb / ub, v = (pa - pb) / pb;
+          if (Math.abs(v) >= ALR_PRECO_VAR) {
+            add('preco', Math.abs(v) >= ALR_PRECO_CRIT ? 0 : 1, k, asin,
+                'Preço médio pedido ' + MOEDA2(pb) + ' → ' + MOEDA2(pa) + ' (' + DELTA(v) + ')', null);
+          }
+        }
         if (a.e != null && ua >= ALR_MIN_UN_COB) {
           const dias = a.e / (ua / 7);
           if (dias < ALR_COB_DIAS) {
@@ -1962,7 +1973,7 @@ async function iniciarDashboard() {
     const ref = Object.values(semanasRef)[0];
     document.getElementById('alrDesc').textContent =
       'Semana fechada mais recente' + (ref ? ' (' + DM(ref.atual) + ' a ' + DM(ref.fim) + ')' : '') + ' contra a anterior. ' +
-      'Crítico: queda de vendas de ' + Math.round(ALR_QUEDA_VENDAS_C * 100) + '% ou mais, cobertura abaixo de ' + ALR_COB_CRIT + ' dias, destaque perdido, listing suprimido. ' +
+      'Crítico: queda de vendas de ' + Math.round(ALR_QUEDA_VENDAS_C * 100) + '% ou mais, cobertura abaixo de ' + ALR_COB_CRIT + ' dias, variação de preço de ' + Math.round(ALR_PRECO_CRIT * 100) + '% ou mais, destaque perdido, listing suprimido. ' +
       'Os valores de impacto são estimativas e não devem ser somados entre alertas, porque o mesmo produto pode aparecer em mais de um.';
     const conta = t => alertas.filter(a => a.tipo === t).length;
     const crit = alertas.filter(a => a.sev === 0).length;
@@ -2099,10 +2110,11 @@ async function iniciarDashboard() {
     'visitas com destaque da amazon': 'Visualizações em que a oferta em destaque é da Amazon (as visitas contadas no relatório de tráfego).',
     'visitas perdidas (est.)': 'Visualizações em que o destaque é de outro vendedor: visitas com destaque × perdidas ÷ (1 − perdidas).',
     // ---- Alertas
-    'alertas críticos': 'Alertas que exigem ação primeiro: destaque perdido, queda de vendas de 60% ou mais, cobertura abaixo de 7 dias e listings suprimidos.',
+    'alertas críticos': 'Alertas que exigem ação primeiro: destaque perdido, queda de vendas de 60% ou mais, cobertura abaixo de 7 dias, variação de preço de 25% ou mais e listings suprimidos.',
     'total de alertas': 'Todos os alertas das contas selecionadas.',
     'oferta em destaque perdida': 'Produtos com mais de 50% das visualizações perdidas na última semana fechada.',
     'queda de vendas': 'Receita pedida caiu 30% ou mais contra a semana anterior (a semana anterior teve R$ 300 ou mais).',
+    'variação de preço': 'Preço médio pedido (receita pedida ÷ unidades pedidas) variou 10% ou mais contra a semana anterior, para cima ou para baixo, com pelo menos 3 unidades nas duas semanas. É uma média: mistura promoções e descontos da semana.',
     'queda de conversão': 'Conversão caiu 30% ou mais contra a semana anterior, com pelo menos 30 visitas nas duas semanas.',
     'cobertura baixa': 'Estoque vendável dura menos de 15 dias no ritmo de vendas da semana.',
     'listing com problema': 'Produtos suprimidos ou com erros na Listings Items API.',
