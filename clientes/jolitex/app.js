@@ -1862,8 +1862,8 @@ async function iniciarDashboard() {
      7a. ALERTAS: o que exige ação agora, por prioridade
      Cruza dados que o dashboard já tem (semana fechada mais recente contra a anterior):
        destaque perdido (Data Kiosk), queda de vendas, queda de conversão, cobertura baixa
-       (porAsinSem: r receita, u unidades, v visitas, e estoque vendável), POs atrasados
-       (atrasados) e listings suprimidos ou com erro (qualidadeListings).
+       (porAsinSem: r receita, u unidades, v visitas, e estoque vendável)
+       e listings suprimidos ou com erro (qualidadeListings).
      Limites ajustáveis nas constantes abaixo.
      ------------------------------------------------------------------------ */
   const ALR_QUEDA_VENDAS   = 0.30;   // queda de 30% ou mais na receita pedida (semana contra semana)
@@ -1875,13 +1875,11 @@ async function iniciarDashboard() {
   const ALR_COB_DIAS       = 15;     // cobertura abaixo disso = alerta
   const ALR_COB_CRIT       = 7;      // cobertura abaixo disso (ou zero) = crítico
   const ALR_MIN_UN_COB     = 3;      // unidades vendidas na semana para calcular cobertura
-  const ALR_PO_CRIT_DIAS   = 30;     // PO atrasado há 30 dias ou mais = crítico
   const ALR_TIPOS = {
     destaque: 'Oferta em destaque perdida',
     vendas:   'Queda de vendas',
     conversao:'Queda de conversão',
     cobertura:'Cobertura baixa',
-    po:       'Pedido de compra atrasado',
     listing:  'Listing com problema'
   };
 
@@ -1935,13 +1933,6 @@ async function iniciarDashboard() {
         }
       });
 
-      // pedidos de compra atrasados
-      Object.keys(c.atrasados || {}).forEach(asin => {
-        const p = c.atrasados[asin];
-        add('po', (p.maxDias || 0) >= ALR_PO_CRIT_DIAS ? 0 : 1, k, asin,
-            NUM(p.un) + ' un. em ' + NUM(p.pos) + ' PO(s), atraso de até ' + NUM(p.maxDias) + ' dias', p.custo);
-      });
-
       // listings: suprimidos um a um (críticos); erros sem supressão viram uma linha-resumo por conta
       const la = ((c.qualidadeListings || {}).asins) || {};
       let comErro = 0;
@@ -1961,7 +1952,7 @@ async function iniciarDashboard() {
     const ref = Object.values(semanasRef)[0];
     document.getElementById('alrDesc').textContent =
       'Semana fechada mais recente' + (ref ? ' (' + DM(ref.atual) + ' a ' + DM(ref.fim) + ')' : '') + ' contra a anterior. ' +
-      'Crítico: queda de vendas de ' + Math.round(ALR_QUEDA_VENDAS_C * 100) + '% ou mais, cobertura abaixo de ' + ALR_COB_CRIT + ' dias, PO atrasado há ' + ALR_PO_CRIT_DIAS + ' dias ou mais, destaque perdido, listing suprimido. ' +
+      'Crítico: queda de vendas de ' + Math.round(ALR_QUEDA_VENDAS_C * 100) + '% ou mais, cobertura abaixo de ' + ALR_COB_CRIT + ' dias, destaque perdido, listing suprimido. ' +
       'Os valores de impacto são estimativas e não devem ser somados entre alertas, porque o mesmo produto pode aparecer em mais de um.';
     const conta = t => alertas.filter(a => a.tipo === t).length;
     const crit = alertas.filter(a => a.sev === 0).length;
