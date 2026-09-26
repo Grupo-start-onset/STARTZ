@@ -973,8 +973,8 @@ async function iniciarDashboard() {
     //   (totalPOs cobre o arquivo inteiro e não serve para período).
     const noPeriodo = m => m >= state.de && m <= state.ate;
     const mesesSell = SELLIN_MONTHS.filter(noPeriodo);
-    const sellinPorMes = {}, sellOutPorMes = {};
-    mesesSell.forEach(m => { sellinPorMes[m] = 0; sellOutPorMes[m] = 0; });
+    const sellinPorMes = {}, sellOutPorMes = {}, recPoPorMes = {};   // recPoPorMes: custo recebido dos POs, no mês de CRIAÇÃO do PO
+    mesesSell.forEach(m => { sellinPorMes[m] = 0; sellOutPorMes[m] = 0; recPoPorMes[m] = 0; });
 
     let totPOs = 0, totConf = 0, totRej = 0, totRec = 0;
     const linhasConta = [];
@@ -989,6 +989,7 @@ async function iniciarDashboard() {
       let posConta = 0, confConta = 0, rejConta = 0, recConta = 0;
       Object.keys(sm).forEach(m => {
         if (!noPeriodo(m)) return;
+        recPoPorMes[m] += sm[m].custoRecebido || 0;
         posConta += sm[m].pos || 0;
         confConta += sm[m].conf || 0;
         rejConta += sm[m].rej || 0;
@@ -1016,6 +1017,7 @@ async function iniciarDashboard() {
         data:{ labels: mesesSell.map(MESLABEL),
           datasets:[
             {label:'Sell-in (recebido, custo)', data: mesesSell.map(m=>sellinPorMes[m]), backgroundColor:'#17868C', borderRadius:4},
+            {label:'Recebido em POs (custo, pelo mês do PO)', data: mesesSell.map(m=>recPoPorMes[m]), backgroundColor:'#2C7A57', borderRadius:4},
             {label:'Sell-out (venda, custo)', data: mesesSell.map(m=>sellOutPorMes[m]), backgroundColor:'#9C6510', borderRadius:4}
           ] },
         options: baseGridOpts()
