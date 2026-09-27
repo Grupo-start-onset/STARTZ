@@ -6,12 +6,17 @@ maioria das operações (incluindo os relatórios de Vendor usados aqui):
 basta trocar o refresh token por um access token de curta duração (1h)
 e mandar esse token no header 'x-amz-access-token' de cada chamada.
 
+Cada conta (alfa_jf, balboa, ...) tem seu próprio refresh token, mas
+todas compartilham o mesmo client id/secret (o app cadastrado na
+Amazon). Por isso o token de acesso é pedido por conta.
+
 Uso:
-    from config import load_config
+    from config import load_config, load_contas
     from sp_api_auth import get_access_token
 
     cfg = load_config()
-    token = get_access_token(cfg)
+    contas = load_contas()
+    token = get_access_token(cfg, contas["alfa_jf"].refresh_token)
 """
 from __future__ import annotations
 
@@ -23,14 +28,13 @@ from config import SPAPIConfig
 
 _TOKEN_URL = "https://api.amazon.com/auth/o2/token"
 
-# cache simples em memória (evita pedir um token novo a cada chamada
-# dentro da mesma execução do script)
+# cache simples em memória, por refresh token (evita pedir um token
+# novo a cada chamada dentro da mesma execução do script)
 _cache: dict[str, tuple[str, float]] = {}
 
 
-def get_access_token(cfg: SPAPIConfig) -> str:
-    cache_key = cfg.refresh_token
-    cached = _cache.get(cache_key)
+def get_access_token(cfg: SPAPIConfig, refresh_token: str) -> str:
+    cached = _cache.get(refresh_token)
     if cached and cached[1] > time.time():
         return cached[0]
 
@@ -38,7 +42,7 @@ def get_access_token(cfg: SPAPIConfig) -> str:
         _TOKEN_URL,
         data={
             "grant_type": "refresh_token",
-            "refresh_token": cfg.refresh_token,
+            "refresh_token": refresh_token,
             "client_id": cfg.lwa_client_id,
             "client_secret": cfg.lwa_client_secret,
         },
@@ -49,12 +53,12 @@ def get_access_token(cfg: SPAPIConfig) -> str:
         raise RuntimeError(
             "Falha ao autenticar na SP-API "
             f"(HTTP {resp.status_code}): {resp.text}\n"
-            "Verifique SPAPI_LWA_CLIENT_ID, SPAPI_LWA_CLIENT_SECRET e "
-            "SPAPI_REFRESH_TOKEN."
+            "Verifique SP_API_LWA_CLIENT_ID, SP_API_LWA_CLIENT_SECRET e "
+            "o refresh token dessa conta."
         )
 
     dados = resp.json()
     token = dados["access_token"]
     expira_em = time.time() + dados.get("expires_in", 3600) - 60  # margem de 60s
-    _cache[cache_key] = (token, expira_em)
+    _cache[refresh_token] = (token, expira_em)
     return token
